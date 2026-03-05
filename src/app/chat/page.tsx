@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useChatStore } from '@/lib/store/chatStore';
+import TopicSuggestions from '@/components/Chat/TopicSuggestions';
 
 interface Message {
   _id: string;
@@ -35,29 +36,28 @@ export default function ChatPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showSessions, setShowSessions] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { isLoggedIn, user, token } = useAuthStore();
+  const { isLoggedIn, user, checkAuth } = useAuthStore();
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   useEffect(() => {
-    // 等待 store rehydrate
-    const timer = setTimeout(() => {
-      setIsCheckingAuth(false);
-    }, 500);
-    return () => clearTimeout(timer);
+    // 检查登录状态
+    checkAuth().then(() => setIsCheckingAuth(false));
   }, []);
 
   useEffect(() => {
     if (isCheckingAuth) return;
-    if (!isLoggedIn || !token) {
+    if (!isLoggedIn) {
       window.location.href = '/login';
       return;
     }
     loadCharacters();
-    loadSessions();
-  }, [isLoggedIn, token, isCheckingAuth]);
+    if (user?.id) {
+      loadSessions();
+    }
+  }, [isLoggedIn, isCheckingAuth, user?.id]);
 
   const loadSessions = async () => {
     if (!user?.id) return;
@@ -98,10 +98,13 @@ export default function ChatPage() {
   const sendMessage = async () => {
     if (!input.trim() || isLoading || !selectedCharacter) return;
 
+    // 保存消息内容，避免被清空
+    const messageContent = input;
+
     const userMessage: Message = {
       _id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content: messageContent,
       createdAt: new Date().toISOString(),
     };
 
@@ -114,7 +117,7 @@ export default function ChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input,
+          message: messageContent,
           sessionId,
           character: selectedCharacter._id,
           mode: 'companion',
@@ -214,7 +217,7 @@ export default function ChatPage() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {showSessions ? (
             <>
               <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">历史对话</h3>
@@ -237,25 +240,30 @@ export default function ChatPage() {
             </>
           ) : (
             <>
-              <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">选择角色</h3>
-              <div className="space-y-2">
-                {characters.map((char) => (
-                  <button
-                    key={char._id}
-                    onClick={() => setSelectedCharacter(char)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg transition text-left ${
-                      selectedCharacter?._id === char._id
-                        ? 'bg-blue-50 border-blue-200 border'
-                        : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="text-2xl">{char.avatar}</span>
-                    <div>
-                      <p className="font-medium text-gray-800">{char.name}</p>
-                    </div>
-                  </button>
-                ))}
+              <div>
+                <h3 className="text-xs font-medium text-gray-500 uppercase mb-3">选择角色</h3>
+                <div className="space-y-2">
+                  {characters.map((char) => (
+                    <button
+                      key={char._id}
+                      onClick={() => setSelectedCharacter(char)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg transition text-left ${
+                        selectedCharacter?._id === char._id
+                          ? 'bg-blue-50 border-blue-200 border'
+                          : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="text-2xl">{char.avatar}</span>
+                      <div>
+                        <p className="font-medium text-gray-800">{char.name}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* 话题推荐 */}
+              <TopicSuggestions onSelectTopic={(topic) => setInput(topic)} />
             </>
           )}
         </div>

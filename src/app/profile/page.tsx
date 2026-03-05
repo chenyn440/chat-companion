@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
-import { ChevronLeft, User, MessageSquare, Calendar, Star, Settings } from 'lucide-react';
+import { ChevronLeft, User, MessageSquare, Calendar, Star, Settings, Smile } from 'lucide-react';
 import Link from 'next/link';
 
 interface UserStats {
@@ -14,17 +14,27 @@ interface UserStats {
 }
 
 export default function ProfilePage() {
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, isLoggedIn, checkAuth } = useAuthStore();
+  const [authLoading, setAuthLoading] = useState(true);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState(user?.nickname || '');
 
   useEffect(() => {
+    checkAuth().then(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isLoggedIn) {
+      window.location.href = '/login';
+      return;
+    }
     if (user?.id) {
       fetchStats();
     }
-  }, [user?.id]);
+  }, [user?.id, isLoggedIn, authLoading]);
 
   // 同步 nickname 状态当 user 变化时
   useEffect(() => {
@@ -57,8 +67,13 @@ export default function ProfilePage() {
       });
       
       const data = await res.json();
-      if (data.success) {
-        setUser({ ...user, nickname: data.data.nickname });
+      if (data.success && user) {
+        setUser({ 
+          ...user, 
+          nickname: data.data.nickname,
+          avatar: data.data.avatar || user.avatar,
+          preferences: data.data.preferences || user.preferences,
+        });
         setEditing(false);
       }
     } catch (error) {
@@ -174,6 +189,13 @@ export default function ProfilePage() {
           <div className="space-y-3">
             <Link href="/sessions" className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
               <span>对话历史</span>
+              <ChevronLeft className="transform rotate-180" size={18} />
+            </Link>
+            <Link href="/mood" className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
+              <span className="flex items-center">
+                <Smile className="mr-2 text-yellow-500" size={18} />
+                心情日记
+              </span>
               <ChevronLeft className="transform rotate-180" size={18} />
             </Link>
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">

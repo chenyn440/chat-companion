@@ -6,6 +6,12 @@ export async function GET(req: NextRequest) {
   try {
     await dbConnect();
     
+    // 从 cookie 验证登录状态
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
+      return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
+    }
+    
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
     
@@ -36,6 +42,12 @@ export async function GET(req: NextRequest) {
       success: true,
       data: {
         sessions: formattedSessions,
+        pagination: {
+          page: 1,
+          limit: 20,
+          total: formattedSessions.length,
+          totalPages: 1,
+        },
       },
     });
   } catch (error) {

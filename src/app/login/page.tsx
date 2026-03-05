@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [isHydrated, setIsHydrated] = useState(false);
-  const { setUser, setToken, isLoggedIn, login } = useAuthStore();
+  const { isLoggedIn, login } = useAuthStore();
   const router = useRouter();
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function LoginPage() {
     }
   };
 
-  const login = async () => {
+  const handleLogin = async () => {
     if (!phone || !code) return;
 
     setIsLoading(true);
@@ -67,8 +67,8 @@ export default function LoginPage() {
 
       const data = await res.json();
       if (data.success) {
-        // 使用 login 方法一次性设置所有状态
-        login(data.data.user, data.data.token);
+        // 使用 login 方法设置用户状态（cookie 已由服务端设置）
+        login(data.data.user);
         // 等待状态更新后跳转
         setTimeout(() => {
           router.push('/chat');
@@ -122,7 +122,7 @@ export default function LoginPage() {
           </div>
 
           <button
-            onClick={login}
+            onClick={handleLogin}
             disabled={isLoading || !phone || !code}
             className="w-full py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition font-medium"
           >

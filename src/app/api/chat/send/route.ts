@@ -34,6 +34,12 @@ export async function POST(req: NextRequest) {
   try {
     await dbConnect();
     
+    // 从 cookie 验证登录状态
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
+      return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
+    }
+    
     const { message, sessionId, mode = 'companion', character = 'gentle', userId } = await req.json();
     
     if (!message) {

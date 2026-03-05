@@ -28,7 +28,6 @@ export default function ChatHeader() {
 
   useEffect(() => {
     setMounted(true);
-    useAuthStore.persist.rehydrate();
   }, []);
 
   return (

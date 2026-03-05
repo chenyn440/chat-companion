@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 
 interface User {
   id: string;
@@ -14,32 +13,35 @@ interface User {
 
 interface AuthState {
   user: User | null;
-  token: string | null;
   isLoggedIn: boolean;
   
   // Actions
   setUser: (user: User | null) => void;
-  setToken: (token: string | null) => void;
-  login: (user: User, token: string) => void;
+  setIsLoggedIn: (isLoggedIn: boolean) => void;
+  login: (user: User) => void;
   logout: () => void;
+  checkAuth: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      user: null,
-      token: null,
-      isLoggedIn: false,
-      
-      setUser: (user) => set({ user }),
-      setToken: (token) => set({ token }),
-      login: (user, token) => set({ user, token, isLoggedIn: true }),
-      logout: () => set({ user: null, token: null, isLoggedIn: false }),
-    }),
-    {
-      name: 'auth-storage',
-      storage: createJSONStorage(() => localStorage),
-      skipHydration: true,
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  isLoggedIn: false,
+  
+  setUser: (user) => set({ user }),
+  setIsLoggedIn: (isLoggedIn) => set({ isLoggedIn }),
+  login: (user) => set({ user, isLoggedIn: true }),
+  logout: () => set({ user: null, isLoggedIn: false }),
+  checkAuth: async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      if (data.success) {
+        set({ isLoggedIn: true });
+      } else {
+        set({ isLoggedIn: false });
+      }
+    } catch (error) {
+      set({ isLoggedIn: false });
     }
-  )
-);
+  },
+}));

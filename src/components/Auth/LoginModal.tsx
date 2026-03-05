@@ -33,7 +33,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
       const data = await res.json();
 
       if (data.success) {
-        login(data.data.user, data.data.token);
+        login(data.data.user);
         onClose();
       } else {
         setError(data.error || '登录失败');

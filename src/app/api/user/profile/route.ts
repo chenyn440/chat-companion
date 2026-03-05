@@ -8,6 +8,12 @@ export async function GET(req: NextRequest) {
   try {
     await dbConnect();
     
+    // 从 cookie 验证登录状态
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
+      return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
+    }
+    
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
     
@@ -30,7 +36,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        id: user._id.toString(),
+        id: String(user._id),
         phone: user.phone,
         nickname: user.nickname,
         avatar: user.avatar,
@@ -51,6 +57,12 @@ export async function PUT(req: NextRequest) {
   try {
     await dbConnect();
     
+    // 从 cookie 验证登录状态
+    const token = req.cookies.get('token')?.value;
+    if (!token) {
+      return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
+    }
+    
     const { userId, nickname, avatar, preferences } = await req.json();
     
     if (!userId) {
@@ -61,9 +73,9 @@ export async function PUT(req: NextRequest) {
     }
     
     const updateData: any = {};
-    if (nickname) updateData.nickname = nickname;
-    if (avatar) updateData.avatar = avatar;
-    if (preferences) updateData.preferences = preferences;
+    if (nickname !== undefined) updateData.nickname = nickname;
+    if (avatar !== undefined) updateData.avatar = avatar;
+    if (preferences !== undefined) updateData.preferences = preferences;
     
     const user = await User.findByIdAndUpdate(
       userId,
@@ -81,7 +93,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        id: user._id.toString(),
+        id: String(user._id),
         phone: user.phone,
         nickname: user.nickname,
         avatar: user.avatar,

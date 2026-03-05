@@ -43,12 +43,12 @@ export async function POST(req: NextRequest) {
     // 生成 token
     const token = generateToken(user._id.toString());
 
-    return NextResponse.json({
+    // 创建响应并设置 cookie
+    const response = NextResponse.json({
       success: true,
       data: {
-        token,
         user: {
-          id: user._id.toString(),
+          id: String(user._id),
           phone: user.phone,
           nickname: user.nickname,
           avatar: user.avatar,
@@ -56,6 +56,19 @@ export async function POST(req: NextRequest) {
         },
       },
     });
+
+    // 设置 HTTP-only cookie
+    response.cookies.set({
+      name: 'token',
+      value: token,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7天
+      path: '/',
+    });
+
+    return response;
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(

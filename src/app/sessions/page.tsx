@@ -17,7 +17,8 @@ interface Session {
 }
 
 export default function SessionList() {
-  const { user } = useAuthStore();
+  const { user, isLoggedIn, checkAuth } = useAuthStore();
+  const [authLoading, setAuthLoading] = useState(true);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'favorite'>('all');
@@ -54,8 +55,17 @@ export default function SessionList() {
   };
 
   useEffect(() => {
+    checkAuth().then(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!isLoggedIn) {
+      window.location.href = '/login';
+      return;
+    }
     fetchSessions();
-  }, [search, filter, page, user]);
+  }, [search, filter, page, user, isLoggedIn, authLoading]);
 
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这个对话吗？')) return;
