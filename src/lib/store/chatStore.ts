@@ -1,0 +1,43 @@
+import { create } from 'zustand';
+
+export type ChatMode = 'treehole' | 'advice' | 'companion';
+export type Character = 'gentle' | 'rational' | 'funny' | 'elder';
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+interface ChatState {
+  sessionId: string | null;
+  messages: Message[];
+  mode: ChatMode;
+  character: Character;
+  isLoading: boolean;
+  
+  // Actions
+  setSessionId: (id: string | null) => void;
+  addMessage: (message: Message) => void;
+  setMode: (mode: ChatMode) => void;
+  setCharacter: (character: Character) => void;
+  setLoading: (loading: boolean) => void;
+  clearMessages: () => void;
+}
+
+export const useChatStore = create<ChatState>((set) => ({
+  sessionId: null,
+  messages: [],
+  mode: 'companion',
+  character: 'gentle',
+  isLoading: false,
+  
+  setSessionId: (id) => set({ sessionId: id }),
+  addMessage: (message) => set((state) => ({
+    messages: [...state.messages, message],
+  })),
+  setMode: (mode) => set({ mode }),
+  setCharacter: (character) => set({ character }),
+  setLoading: (loading) => set({ isLoading: loading }),
+  clearMessages: () => set({ messages: [], sessionId: null }),
+}));
