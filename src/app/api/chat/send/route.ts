@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db/mongoose';
 import Session from '@/models/Session';
-import { chatWithKimi } from '@/lib/services/kimi';
+import { chatWithZhipu } from '@/lib/services/zhipu';
 
 // AI 角色设定
 const characters = {
@@ -33,15 +33,9 @@ const modes = {
 export async function POST(req: NextRequest) {
   try {
     await dbConnect();
-    
-    // 从 cookie 验证登录状态
-    const token = req.cookies.get('token')?.value;
-    if (!token) {
-      return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
-    }
-    
+
     const { message, sessionId, mode = 'companion', character = 'gentle', userId } = await req.json();
-    
+
     if (!message) {
       return NextResponse.json({ success: false, error: '消息不能为空' }, { status: 400 });
     }
@@ -55,7 +49,7 @@ export async function POST(req: NextRequest) {
     if (sessionId) {
       session = await Session.findById(sessionId);
     }
-    
+
     if (!session) {
       session = new Session({
         userId,
@@ -75,11 +69,11 @@ export async function POST(req: NextRequest) {
     // 构建 AI 提示词
     const characterPrompt = characters[character as keyof typeof characters]?.prompt || characters.gentle.prompt;
     const modePrompt = modes[mode as keyof typeof modes] || modes.companion;
-    
+
     const systemPrompt = `${characterPrompt}\n\n当前模式：${modePrompt}\n\n请根据以上设定回复用户。`;
 
-    // 调用 Kimi API
-    const kimiMessages = [
+    // 调用智谱 API
+    const zhipuMessages = [
       { role: 'system' as const, content: systemPrompt },
       ...session.messages.slice(-10).map((m: any) => ({
         role: m.role as 'user' | 'assistant',
@@ -87,14 +81,14 @@ export async function POST(req: NextRequest) {
       })),
     ];
 
-    const apiKey = process.env.KIMI_API_KEY;
+    const apiKey = process.env.ZHIPU_API_KEY;
     let aiReply: string;
 
-    if (apiKey && apiKey !== 'your_kimi_api_key_here') {
+    if (apiKey && apiKey !== 'your_zhipu_api_key_here') {
       try {
-        aiReply = await chatWithKimi(kimiMessages, apiKey);
+        aiReply = await chatWithZhipu(zhipuMessages, apiKey);
       } catch (error: any) {
-        console.error('Kimi API error:', error);
+        console.error('Zhipu API error:', error);
         aiReply = '抱歉，AI 服务暂时不可用，请稍后再试。';
       }
     } else {

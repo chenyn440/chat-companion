@@ -67,6 +67,8 @@ export default function LoginPage() {
 
       const data = await res.json();
       if (data.success) {
+        // 保存用户ID到 localStorage
+        localStorage.setItem('userId', data.data.user.id);
         // 使用 login 方法设置用户状态（cookie 已由服务端设置）
         login(data.data.user);
         // 等待状态更新后跳转

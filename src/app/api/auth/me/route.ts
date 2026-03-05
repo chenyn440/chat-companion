@@ -16,13 +16,34 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // TODO: 验证 token 并获取用户信息
-    // MVP 阶段简化处理：token 包含用户ID
+    // MVP 阶段：从 localStorage 获取用户ID（前端会在请求头中传递）
+    const userId = req.headers.get('x-user-id');
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: '缺少用户信息' },
+        { status: 400 }
+      );
+    }
+
+    // 获取用户信息
+    const user = await User.findById(userId).lean();
+    
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: '用户不存在' },
+        { status: 404 }
+      );
+    }
     
     return NextResponse.json({
       success: true,
       data: {
-        isLoggedIn: true,
+        id: String(user._id),
+        phone: user.phone,
+        nickname: user.nickname,
+        avatar: user.avatar,
+        preferences: user.preferences,
       },
     });
   } catch (error) {

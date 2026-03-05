@@ -58,16 +58,24 @@ export default function ProfilePage() {
   const handleUpdateProfile = async () => {
     if (!user?.id) return;
     
+    // 验证昵称不为空
+    if (!nickname.trim()) {
+      alert('昵称不能为空');
+      return;
+    }
+    
     setLoading(true);
     try {
       const res = await fetch('/api/user/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, nickname }),
+        body: JSON.stringify({ userId: user.id, nickname: nickname.trim() }),
       });
       
       const data = await res.json();
+      
       if (data.success && user) {
+        // 更新全局状态
         setUser({ 
           ...user, 
           nickname: data.data.nickname,
@@ -75,9 +83,13 @@ export default function ProfilePage() {
           preferences: data.data.preferences || user.preferences,
         });
         setEditing(false);
+        alert('昵称修改成功！');
+      } else {
+        alert(data.error || '修改失败，请重试');
       }
     } catch (error) {
       console.error('Update profile error:', error);
+      alert('网络错误，请重试');
     } finally {
       setLoading(false);
     }
