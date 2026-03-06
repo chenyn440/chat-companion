@@ -177,7 +177,7 @@ export default function ChatPage() {
             } else if (data.type === 'content') {
               accumulatedContent += data.content;
               console.log('Accumulated content:', accumulatedContent);
-              
+
               // 更新最后一条消息的内容
               setMessages((prev) => {
                 const newMessages = [...prev];
@@ -402,34 +402,38 @@ export default function ChatPage() {
             </div>
           )}
 
-          {messages.map((message) => (
-            <div
-              key={message._id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-            >
-              <div
-                className={`max-w-[70%] px-4 py-3 rounded-2xl ${message.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-br-md'
-                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-                  }`}
-              >
-                <p className="whitespace-pre-wrap">{message.content}</p>
-              </div>
-            </div>
-          ))}
+          {messages.map((message) => {
+            // 如果是空的 AI 消息，显示输入中动画
+            if (message.role === 'assistant' && !message.content) {
+              return (
+                <div key={message._id} className="flex justify-start">
+                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-md">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
 
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-md">
-                <div className="flex gap-1">
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+            return (
+              <div
+                key={message._id}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[70%] px-4 py-3 rounded-2xl ${message.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-br-md'
+                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                    }`}
+                >
+                  <p className="whitespace-pre-wrap">{message.content}</p>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })}
 
           <div ref={messagesEndRef} />
         </div>
