@@ -99,6 +99,7 @@ export async function chatWithZhipuStream(
       }
 
       let buffer = ''; // 缓冲区，处理跨 chunk 的数据
+      let isClosed = false;
 
       try {
         while (true) {
@@ -123,20 +124,27 @@ export async function chatWithZhipuStream(
               try {
                 const parsed: ZhipuStreamChunk = JSON.parse(data);
                 const content = parsed.choices[0]?.delta?.content;
-                if (content) {
+                if (content && !isClosed) {
                   controller.enqueue(new TextEncoder().encode(content));
                 }
               } catch (e) {
-                console.error('Parse error:', e, 'Raw data:', data);
+                // 忽略解析错误，继续处理下一行
+                console.warn('Parse warning (ignored):', e, 'Data:', data.substring(0, 100));
               }
             }
           }
         }
       } catch (error) {
         console.error('Stream error:', error);
-        controller.error(error);
+        if (!isClosed) {
+          controller.error(error);
+          isClosed = true;
+        }
       } finally {
-        controller.close();
+        if (!isClosed) {
+          controller.close();
+          isClosed = true;
+        }
       }
     },
   });
