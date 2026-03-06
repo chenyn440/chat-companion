@@ -1,8 +1,9 @@
 'use client';
 
 import './styles.css';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
+import { useSearchParams } from 'next/navigation';
 import { chatStorage, StoredSession, StoredMessage, Variant } from '@/lib/storage/chatStorage';
 import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
@@ -16,7 +17,7 @@ import {
   X,
 } from 'lucide-react';
 
-export default function ChatV2Page() {
+function ChatV2Inner() {
   const { isLoggedIn, user, checkAuth, logout } = useAuthStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
@@ -29,7 +30,14 @@ export default function ChatV2Page() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
 
-  const [input, setInput] = useState('');
+  const searchParams = useSearchParams();
+  const [input, setInput] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('prompt');
+      return p ? decodeURIComponent(p) : '';
+    }
+    return '';
+  });
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -702,5 +710,13 @@ export default function ChatV2Page() {
           </div>
       </div>
     </div>
+  );
+}
+
+export default function ChatV2Page() {
+  return (
+    <Suspense fallback={null}>
+      <ChatV2Inner />
+    </Suspense>
   );
 }
