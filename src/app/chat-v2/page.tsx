@@ -1,5 +1,6 @@
 'use client';
 
+import './styles.css';
 import { useState, useEffect, useRef } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -316,9 +317,9 @@ export default function ChatV2Page() {
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen chat-v2-container">
       {/* 会话管理侧边栏 */}
-      <div className={`${showSessionManager ? 'w-64' : 'w-0'} transition-all duration-300 overflow-hidden border-r bg-white`}>
+      <div className={`${showSessionManager ? 'chat-v2-sidebar' : 'w-0'} transition-all duration-300 overflow-hidden`}>
         <SessionManager
           sessions={sessions}
           currentSessionId={currentSessionId}
