@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+mongoose.set('strictQuery', false);
 
 // Silence Mongoose v7 strictQuery default-change warning.
 mongoose.set('strictQuery', false);
