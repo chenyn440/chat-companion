@@ -20,7 +20,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (isHydrated && isLoggedIn) {
-      router.push('/chat');
+      router.push('/chat-v2');
     }
   }, [isHydrated, isLoggedIn, router]);
 
@@ -73,7 +73,7 @@ export default function LoginPage() {
         login(data.data.user);
         // 等待状态更新后跳转
         setTimeout(() => {
-          router.push('/chat');
+          router.push('/chat-v2');
         }, 100);
       } else {
         alert(data.error || '登录失败');
