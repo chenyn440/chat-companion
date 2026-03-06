@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useChatStore } from '@/lib/store/chatStore';
 import TopicSuggestions from '@/components/Chat/TopicSuggestions';
@@ -133,11 +134,14 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, aiMessage]);
 
     let accumulatedContent = '';
+    const abortController = new AbortController();
 
     try {
-      const response = await fetch('/api/chat/send', {
+      await fetchEventSource('/api/chat/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           message: messageContent,
           sessionId,
@@ -145,49 +149,31 @@ export default function ChatPage() {
           mode: 'companion',
           userId: user?.id,
         }),
-      });
+        signal: abortController.signal,
 
-      if (response.status === 401) {
-        alert('请先登录');
-        window.location.href = '/login';
-        return;
-      }
+        async onopen(response) {
+          if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
+            console.log('SSE connection opened');
+            return;
+          } else if (response.status === 401) {
+            alert('请先登录');
+            window.location.href = '/login';
+            throw new Error('Unauthorized');
+          } else if (response.status >= 400) {
+            const errorText = await response.text();
+            alert('服务异常：' + errorText);
+            throw new Error(`HTTP ${response.status}`);
+          }
+        },
 
-      if (!response.ok) {
-        alert('服务异常，请稍后再试');
-        return;
-      }
-
-      // 读取 SSE 流
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-
-          const data = trimmedLine.slice(6).trim();
-
+        onmessage(event) {
           try {
-            const parsed = JSON.parse(data);
+            const data = JSON.parse(event.data);
 
-            if (parsed.type === 'session') {
-              setSessionId(parsed.sessionId);
-            } else if (parsed.type === 'content') {
-              accumulatedContent += parsed.content;
+            if (data.type === 'session') {
+              setSessionId(data.sessionId);
+            } else if (data.type === 'content') {
+              accumulatedContent += data.content;
               // 更新最后一条消息的内容
               setMessages((prev) => {
                 const newMessages = [...prev];
@@ -200,26 +186,39 @@ export default function ChatPage() {
                 }
                 return newMessages;
               });
-            } else if (parsed.type === 'done') {
+            } else if (data.type === 'done') {
               console.log('Stream completed');
               // 刷新会话列表
               if (user?.id) {
                 loadSessions();
               }
-            } else if (parsed.type === 'error') {
-              console.error('Stream error:', parsed.error);
-              alert('AI 服务出错：' + parsed.error);
+            } else if (data.type === 'error') {
+              console.error('Stream error:', data.error);
+              alert('AI 服务出错：' + data.error);
             }
           } catch (e) {
-            console.error('Parse error:', e);
+            console.error('Parse error:', e, 'Raw data:', event.data);
           }
-        }
-      }
-    } catch (error) {
+        },
+
+        onerror(err) {
+          console.error('SSE error:', err);
+          if (!accumulatedContent) {
+            alert('网络错误，请检查连接后重试');
+          }
+          throw err; // 停止重连
+        },
+
+        onclose() {
+          console.log('SSE connection closed');
+        },
+      });
+    } catch (error: any) {
       console.error('Send message error:', error);
-      alert('网络错误，请检查连接后重试');
-      // 移除空的 AI 消息
-      setMessages((prev) => prev.filter(m => m._id !== aiMessageId));
+      if (error.name !== 'AbortError' && !accumulatedContent) {
+        // 移除空的 AI 消息
+        setMessages((prev) => prev.filter(m => m._id !== aiMessageId));
+      }
     } finally {
       setIsLoading(false);
     }
