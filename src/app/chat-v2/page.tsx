@@ -393,8 +393,8 @@ export default function ChatV2Page() {
           )}
         </div>
 
-        {/* 会话列表 */}
-        {!sidebarCollapsed && !showFavorites && (
+        {/* 会话列表：始终显示，不受收藏弹窗影响 */}
+        {!sidebarCollapsed && (
           <div className="flex-1 overflow-hidden flex flex-col">
             <SessionManager
               sessions={sessions}
