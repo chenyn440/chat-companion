@@ -7,8 +7,9 @@ import { chatStorage, StoredSession, StoredMessage, Variant } from '@/lib/storag
 import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
 import FavoritesPanel from '@/components/Chat/FavoritesPanel';
+import ShareDialog from '@/components/Chat/ShareDialog';
 import {
-  Send, StopCircle, Download, PenSquare,
+  Send, StopCircle, Download, PenSquare, Share2,
   ChevronLeft, ChevronRight, Star, MoreHorizontal,
   ChevronRight as ArrowRight, ChevronLeft as ArrowLeft,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ export default function ChatV2Page() {
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -351,6 +353,17 @@ export default function ChatV2Page() {
         </>
       )}
 
+      {/* ===== 分享弹窗 ===== */}
+      {showShare && currentSessionId && (
+        <ShareDialog
+          sessionId={currentSessionId}
+          sessionTitle={currentSession?.title || '新对话'}
+          messages={messages}
+          userId={user?.id}
+          onClose={() => setShowShare(false)}
+        />
+      )}
+
       {/* ===== 左侧深色侧边栏 ===== */}
       <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300`}>
         {/* Logo + 折叠 */}
@@ -451,12 +464,21 @@ export default function ChatV2Page() {
           <h1 className="font-medium text-gray-900 text-base">
             {currentSession?.title || '新对话'}
           </h1>
-          <button
-            onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowShare(true)}
+              disabled={!currentSessionId || messages.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Share2 size={15} />分享
+            </button>
+            <button
+              onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <Download size={15} />导出
             </button>
+          </div>
         </div>
 
         {/* 消息列表 */}
