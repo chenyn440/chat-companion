@@ -220,7 +220,10 @@ export default function ChatV2Page() {
           try {
             const data = JSON.parse(event.data);
 
-            if (data.type === 'content') {
+            if (data.type === 'session') {
+              // 处理 session 事件，但不需要特殊操作
+              console.log('Session established:', data.sessionId);
+            } else if (data.type === 'content') {
               accumulatedContent += data.content;
               setMessages((prev) => {
                 const updated = [...prev];
@@ -254,14 +257,21 @@ export default function ChatV2Page() {
                 chatStorage.saveSession(session);
                 loadSessions();
               }
+            } else if (data.type === 'error') {
+              console.error('Stream error:', data.error);
+              alert('AI 服务出错：' + data.error);
             }
           } catch (e) {
-            console.error('Parse error:', e);
+            console.error('Parse error:', e, 'Raw data:', event.data);
           }
         },
 
         onerror(err) {
           console.error('SSE error:', err);
+          if (!accumulatedContent) {
+            alert('连接中断，请检查网络');
+            setMessages((prev) => prev.filter(m => m.id !== aiMessageId));
+          }
           throw err;
         },
       });
