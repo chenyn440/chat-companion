@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useChatStore } from '@/lib/store/chatStore';
 import TopicSuggestions from '@/components/Chat/TopicSuggestions';
+import { useMemoizedFn } from 'ahooks';
 
 interface Message {
   _id: string;
@@ -30,7 +31,7 @@ interface Session {
   messageCount: number;
 }
 
-export default function ChatPage() {
+export default memo(function ChatPage() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export default function ChatPage() {
     }
   }, [characters, user?.preferences?.defaultCharacter]);
 
-  const loadSessions = async () => {
+  const loadSessions = useMemoizedFn(async () => {
     if (!user?.id) return;
     try {
       const res = await fetch('/api/chat/sessions?userId=' + user.id);
@@ -81,17 +82,17 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Load sessions error:', error);
     }
-  };
+  });
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useMemoizedFn(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  });
 
-  const loadCharacters = async () => {
+  const loadCharacters = useMemoizedFn(async () => {
     try {
       const res = await fetch('/api/characters');
       const data = await res.json();
@@ -104,9 +105,9 @@ export default function ChatPage() {
     } catch (error) {
       console.error('Load characters error:', error);
     }
-  };
+  });
 
-  const sendMessage = async () => {
+  const sendMessage = useMemoizedFn(async () => {
     if (!input.trim() || isLoading || !selectedCharacter) return;
 
     // 保存消息内容，避免被清空
@@ -174,7 +175,6 @@ export default function ChatPage() {
               setSessionId(data.sessionId);
             } else if (data.type === 'content') {
               accumulatedContent += data.content;
-              
               // 更新最后一条消息
               setMessages((prev) => {
                 const newMessages = [...prev];
@@ -225,14 +225,14 @@ export default function ChatPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  });
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = useMemoizedFn((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
-  };
+  });
 
   const startNewChat = () => {
     setMessages([]);
@@ -240,7 +240,7 @@ export default function ChatPage() {
     setShowSessions(false);
   };
 
-  const loadSession = async (sessionId: string) => {
+  const loadSession = useMemoizedFn(async (sessionId: string) => {
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       const data = await res.json();
@@ -270,7 +270,7 @@ export default function ChatPage() {
       console.error('Load session error:', error);
       alert('网络错误，请重试');
     }
-  };
+  });
 
   if (isCheckingAuth) {
     return (
@@ -461,4 +461,4 @@ export default function ChatPage() {
       </div>
     </div>
   );
-}
+});
