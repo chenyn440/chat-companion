@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { chatStorage, StoredSession } from '@/lib/storage/chatStorage';
-import { Plus, Search, Star, Pin, Trash2, Edit2, Download } from 'lucide-react';
+import { StoredSession } from '@/lib/storage/chatStorage';
+import { Search, Pin, Trash2, Edit2, Check, X } from 'lucide-react';
 
 interface SessionManagerProps {
   sessions: StoredSession[];
@@ -15,159 +15,154 @@ interface SessionManagerProps {
   onExport: (sessionId: string, format: 'txt' | 'md') => void;
 }
 
+function formatTime(ts: number) {
+  const d = new Date(ts);
+  const now = new Date();
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diffDays === 0) return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  if (diffDays === 1) return '昨天';
+  if (diffDays < 7) return `${diffDays} 天前`;
+  return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+}
+
 export default function SessionManager({
   sessions,
   currentSessionId,
   onSessionSelect,
-  onNewSession,
   onDeleteSession,
   onRenameSession,
   onTogglePin,
   onExport,
 }: SessionManagerProps) {
-  const [searchKeyword, setSearchKeyword] = useState('');
+  const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [hoverId, setHoverId] = useState<string | null>(null);
 
-  // 排序：置顶优先，然后按更新时间
-  const sortedSessions = [...sessions].sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
+  const sorted = [...sessions].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
     return b.updatedAt - a.updatedAt;
   });
 
-  // 搜索过滤
-  const filteredSessions = searchKeyword
-    ? sortedSessions.filter(s => s.title.toLowerCase().includes(searchKeyword.toLowerCase()))
-    : sortedSessions;
+  const filtered = search
+    ? sorted.filter(s => s.title.toLowerCase().includes(search.toLowerCase()))
+    : sorted;
 
-  const handleRename = (sessionId: string) => {
-    if (editTitle.trim()) {
-      onRenameSession(sessionId, editTitle.trim());
-    }
+  const commitRename = (sid: string) => {
+    if (editTitle.trim()) onRenameSession(sid, editTitle.trim());
     setEditingId(null);
     setEditTitle('');
   };
 
+  // 按日期分组
+  const grouped: { label: string; items: StoredSession[] }[] = [];
+  let lastLabel = '';
+  for (const s of filtered) {
+    const diffDays = Math.floor((Date.now() - s.updatedAt) / 86400000);
+    const label = diffDays === 0 ? '今天' : diffDays === 1 ? '昨天' : diffDays < 7 ? '最近 7 天' : '更早';
+    if (label !== lastLabel) { grouped.push({ label, items: [] }); lastLabel = label; }
+    grouped[grouped.length - 1].items.push(s);
+  }
+
   return (
-    <div className="flex flex-col h-full">
-      {/* 搜索框 */}
-      <div className="p-3 border-b">
+    <div className="flex flex-col h-full text-gray-200">
+      {/* 搜索 */}
+      <div className="px-3 pb-2">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" size={14} />
           <input
             type="text"
-            placeholder="搜索会话..."
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            placeholder="搜索对话..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 bg-white/10 rounded-lg text-xs text-gray-200 placeholder-gray-500 outline-none focus:bg-white/15 transition-colors"
           />
         </div>
       </div>
 
-      {/* 新建按钮 */}
-      <div className="p-3 border-b">
-        <button
-          onClick={onNewSession}
-          className="w-full flex items-center justify-center gap-2 py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-        >
-          <Plus size={16} />
-          新建会话
-        </button>
-      </div>
+      {/* 列表 */}
+      <div className="flex-1 overflow-y-auto px-2 space-y-0.5 scrollbar-dark">
+        {filtered.length === 0 && (
+          <p className="text-center text-gray-600 text-xs py-8">
+            {search ? '未找到匹配对话' : '暂无对话记录'}
+          </p>
+        )}
 
-      {/* 会话列表 */}
-      <div className="flex-1 overflow-y-auto">
-        {filteredSessions.length === 0 ? (
-          <div className="p-4 text-center text-gray-400 text-sm">
-            {searchKeyword ? '未找到匹配的会话' : '暂无会话'}
-          </div>
-        ) : (
-          <div className="p-2 space-y-1">
-            {filteredSessions.map((session) => (
+        {grouped.map(group => (
+          <div key={group.label}>
+            <p className="text-gray-600 text-xs px-2 pt-4 pb-1.5 font-medium">{group.label}</p>
+            {group.items.map(s => (
               <div
-                key={session.id}
-                className={`group relative p-3 rounded-lg cursor-pointer transition ${
-                  currentSessionId === session.id
-                    ? 'bg-blue-50 border border-blue-200'
-                    : 'hover:bg-gray-50'
+                key={s.id}
+                onClick={() => onSessionSelect(s.id)}
+                onMouseEnter={() => setHoverId(s.id)}
+                onMouseLeave={() => setHoverId(null)}
+                className={`group relative flex items-center gap-2 px-2 py-2.5 rounded-lg cursor-pointer transition-colors select-none ${
+                  currentSessionId === s.id
+                    ? 'bg-white/15 text-white'
+                    : 'hover:bg-white/10 text-gray-300'
                 }`}
-                onClick={() => onSessionSelect(session.id)}
               >
-                {/* 置顶标记 */}
-                {session.pinned && (
-                  <Pin size={12} className="absolute top-2 right-2 text-blue-600" />
-                )}
+                {/* 置顶图标 */}
+                {s.pinned && <Pin size={12} className="flex-shrink-0 text-amber-400" />}
 
-                {/* 标题 */}
-                {editingId === session.id ? (
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    onBlur={() => handleRename(session.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleRename(session.id);
-                      if (e.key === 'Escape') {
-                        setEditingId(null);
-                        setEditTitle('');
-                      }
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    autoFocus
-                    className="w-full px-2 py-1 border rounded text-sm"
-                  />
-                ) : (
-                  <div className="font-medium text-gray-800 text-sm truncate pr-4">
-                    {session.title}
+                {/* 标题 / 编辑框 */}
+                {editingId === s.id ? (
+                  <div className="flex-1 flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                    <input
+                      value={editTitle}
+                      onChange={e => setEditTitle(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') commitRename(s.id);
+                        if (e.key === 'Escape') { setEditingId(null); setEditTitle(''); }
+                      }}
+                      autoFocus
+                      className="flex-1 bg-white/20 text-white text-xs rounded px-2 py-1 outline-none"
+                    />
+                    <button onClick={() => commitRename(s.id)} className="text-green-400 hover:text-green-300">
+                      <Check size={13} />
+                    </button>
+                    <button onClick={() => { setEditingId(null); setEditTitle(''); }} className="text-gray-500 hover:text-gray-300">
+                      <X size={13} />
+                    </button>
                   </div>
+                ) : (
+                  <>
+                    <span className="flex-1 text-xs truncate">{s.title}</span>
+                    <span className="text-gray-600 text-xs flex-shrink-0 group-hover:hidden">
+                      {formatTime(s.updatedAt)}
+                    </span>
+
+                    {/* 操作按钮 */}
+                    <div className="hidden group-hover:flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => onTogglePin(s.id)}
+                        className="p-1 rounded hover:bg-white/15"
+                        title={s.pinned ? '取消置顶' : '置顶'}
+                      >
+                        <Pin size={13} className={s.pinned ? 'text-amber-400' : 'text-gray-400'} />
+                      </button>
+                      <button
+                        onClick={() => { setEditingId(s.id); setEditTitle(s.title); }}
+                        className="p-1 rounded hover:bg-white/15"
+                        title="重命名"
+                      >
+                        <Edit2 size={13} className="text-gray-400" />
+                      </button>
+                      <button
+                        onClick={() => { if (confirm('确定删除？')) onDeleteSession(s.id); }}
+                        className="p-1 rounded hover:bg-red-500/20"
+                        title="删除"
+                      >
+                        <Trash2 size={13} className="text-red-400" />
+                      </button>
+                    </div>
+                  </>
                 )}
-
-                {/* 时间 */}
-                <div className="text-xs text-gray-400 mt-1">
-                  {new Date(session.updatedAt).toLocaleString()}
-                </div>
-
-                {/* 操作按钮 */}
-                <div className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTogglePin(session.id);
-                    }}
-                    className="p-1 hover:bg-gray-200 rounded"
-                    title={session.pinned ? '取消置顶' : '置顶'}
-                  >
-                    <Pin size={14} className={session.pinned ? 'text-blue-600' : 'text-gray-600'} />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingId(session.id);
-                      setEditTitle(session.title);
-                    }}
-                    className="p-1 hover:bg-gray-200 rounded"
-                    title="重命名"
-                  >
-                    <Edit2 size={14} className="text-gray-600" />
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm('确定删除此会话吗？')) {
-                        onDeleteSession(session.id);
-                      }
-                    }}
-                    className="p-1 hover:bg-red-100 rounded"
-                    title="删除"
-                  >
-                    <Trash2 size={14} className="text-red-600" />
-                  </button>
-                </div>
               </div>
             ))}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
