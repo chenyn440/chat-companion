@@ -324,6 +324,33 @@ export default function ChatV2Page() {
   return (
     <div className="flex h-screen bg-[#F7F8FA] overflow-hidden">
 
+      {/* ===== 收藏悬浮弹窗 ===== */}
+      {showFavorites && (
+        <>
+          {/* 遮罩 */}
+          <div
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
+            onClick={() => setShowFavorites(false)}
+          />
+          {/* 弹窗主体 */}
+          <div
+            className="fixed z-50 bg-white rounded-2xl overflow-hidden flex flex-col"
+            style={{
+              left: sidebarCollapsed ? 80 : 272,
+              top: 64,
+              width: 380,
+              height: 'calc(100vh - 96px)',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.18), 0 6px 20px rgba(0,0,0,0.10)',
+            }}
+          >
+            <FavoritesPanel
+              onJumpToMessage={handleJumpToMessage}
+              onClose={() => setShowFavorites(false)}
+            />
+          </div>
+        </>
+      )}
+
       {/* ===== 左侧深色侧边栏 ===== */}
       <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300`}>
         {/* Logo + 折叠 */}
@@ -382,15 +409,7 @@ export default function ChatV2Page() {
           </div>
         )}
 
-        {/* 收藏面板（侧边栏内嵌） */}
-        {!sidebarCollapsed && showFavorites && (
-          <div className="flex-1 overflow-hidden bg-white rounded-tl-2xl mt-2">
-            <FavoritesPanel
-              onJumpToMessage={handleJumpToMessage}
-              onClose={() => setShowFavorites(false)}
-            />
-          </div>
-        )}
+        {/* 收藏面板已移到悬浮弹窗，此处不再内嵌 */}
 
         {/* 折叠时的图标列表 */}
         {sidebarCollapsed && (
@@ -430,22 +449,20 @@ export default function ChatV2Page() {
         {/* 顶栏 */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
           <h1 className="font-medium text-gray-900 text-base">
-            {showFavorites ? '⭐ 收藏' : (currentSession?.title || '新对话')}
+            {currentSession?.title || '新对话'}
           </h1>
-          {!showFavorites && (
-            <button
-              onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
+          <button
+            onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <Download size={15} />导出
             </button>
-          )}
         </div>
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
-            {messages.length === 0 && !showFavorites && (
+            {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center py-24 gap-4 select-none">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">AI</div>
                 <div className="text-center">
@@ -566,8 +583,7 @@ export default function ChatV2Page() {
         </div>
 
         {/* 输入区域 */}
-        {!showFavorites && (
-          <div className="border-t border-gray-100 bg-white px-6 py-4">
+        <div className="border-t border-gray-100 bg-white px-6 py-4">
             <div className="max-w-3xl mx-auto">
               <div className="relative flex items-end gap-3 bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-md transition-all">
                 <textarea
@@ -601,7 +617,6 @@ export default function ChatV2Page() {
               <p className="text-center text-xs text-gray-400 mt-2">Enter 发送 · Shift+Enter 换行</p>
             </div>
           </div>
-        )}
       </div>
     </div>
   );
