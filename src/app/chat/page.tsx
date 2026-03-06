@@ -39,6 +39,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showSessions, setShowSessions] = useState(false);
+  const [streamingContent, setStreamingContent] = useState(''); // 新增：流式内容状态
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isLoggedIn, user, checkAuth } = useAuthStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -122,18 +123,8 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setStreamingContent(''); // 清空流式内容
 
-    // 添加空的 AI 消息占位
-    const aiMessageId = Date.now().toString() + '_ai';
-    const aiMessage: Message = {
-      _id: aiMessageId,
-      role: 'assistant',
-      content: '',
-      createdAt: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, aiMessage]);
-
-    let accumulatedContent = '';
     const abortController = new AbortController();
 
     try {
@@ -175,24 +166,28 @@ export default function ChatPage() {
               console.log('Setting session ID:', data.sessionId);
               setSessionId(data.sessionId);
             } else if (data.type === 'content') {
-              accumulatedContent += data.content;
-              console.log('Accumulated content:', accumulatedContent);
-
-              // 更新最后一条消息的内容
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                const lastIndex = newMessages.length - 1;
-                if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
-                  console.log('Updating message at index:', lastIndex, 'with content:', accumulatedContent);
-                  newMessages[lastIndex] = {
-                    ...newMessages[lastIndex],
-                    content: accumulatedContent,
-                  };
-                }
-                return newMessages;
+              // 直接更新流式内容状态，触发立即渲染
+              setStreamingContent((prev) => {
+                const newContent = prev + data.content;
+                console.log('Streaming content updated:', newContent);
+                return newContent;
               });
             } else if (data.type === 'done') {
-              console.log('Stream completed, final content:', accumulatedContent);
+              console.log('Stream completed');
+              // 流式完成，将内容添加到消息列表
+              setStreamingContent((currentContent) => {
+                if (currentContent) {
+                  const assistantMessage: Message = {
+                    _id: Date.now().toString() + '_ai',
+                    role: 'assistant',
+                    content: currentContent,
+                    createdAt: new Date().toISOString(),
+                  };
+                  setMessages((prev) => [...prev, assistantMessage]);
+                }
+                return ''; // 清空流式内容
+              });
+              
               // 刷新会话列表
               if (user?.id) {
                 loadSessions();
@@ -200,6 +195,7 @@ export default function ChatPage() {
             } else if (data.type === 'error') {
               console.error('Stream error:', data.error);
               alert('AI 服务出错：' + data.error);
+              setStreamingContent('');
             }
           } catch (e) {
             console.error('Parse error:', e, 'Raw data:', event.data);
@@ -208,9 +204,8 @@ export default function ChatPage() {
 
         onerror(err) {
           console.error('SSE error:', err);
-          if (!accumulatedContent) {
-            alert('网络错误，请检查连接后重试');
-          }
+          setStreamingContent('');
+          alert('网络错误，请检查连接后重试');
           throw err; // 停止重连
         },
 
@@ -220,10 +215,7 @@ export default function ChatPage() {
       });
     } catch (error: any) {
       console.error('Send message error:', error);
-      if (error.name !== 'AbortError' && !accumulatedContent) {
-        // 移除空的 AI 消息
-        setMessages((prev) => prev.filter(m => m._id !== aiMessageId));
-      }
+      setStreamingContent('');
     } finally {
       setIsLoading(false);
     }
@@ -402,38 +394,43 @@ export default function ChatPage() {
             </div>
           )}
 
-          {messages.map((message) => {
-            // 如果是空的 AI 消息，显示输入中动画
-            if (message.role === 'assistant' && !message.content) {
-              return (
-                <div key={message._id} className="flex justify-start">
-                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-md">
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
+          {messages.map((message) => (
+            <div
+              key={message._id}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
               <div
-                key={message._id}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`max-w-[70%] px-4 py-3 rounded-2xl ${message.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-br-md'
+                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                  }`}
               >
-                <div
-                  className={`max-w-[70%] px-4 py-3 rounded-2xl ${message.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-md'
-                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-                    }`}
-                >
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              </div>
+            </div>
+          ))}
+
+          {/* 流式内容显示 */}
+          {streamingContent && (
+            <div className="flex justify-start">
+              <div className="max-w-[70%] px-4 py-3 rounded-2xl bg-white border border-gray-200 text-gray-800 rounded-bl-md">
+                <p className="whitespace-pre-wrap">{streamingContent}</p>
+              </div>
+            </div>
+          )}
+
+          {/* 加载动画 */}
+          {isLoading && !streamingContent && (
+            <div className="flex justify-start">
+              <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-md">
+                <div className="flex gap-1">
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          )}
 
           <div ref={messagesEndRef} />
         </div>
