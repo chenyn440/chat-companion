@@ -1,14 +1,16 @@
 'use client';
 
 import './styles.css';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
-import { chatStorage, StoredSession, StoredMessage } from '@/lib/storage/chatStorage';
+import { chatStorage, StoredSession, StoredMessage, Variant } from '@/lib/storage/chatStorage';
 import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
+import FavoritesPanel from '@/components/Chat/FavoritesPanel';
 import {
   Send, StopCircle, Download, PenSquare,
-  ChevronLeft, ChevronRight, MoreHorizontal
+  ChevronLeft, ChevronRight, Star, MoreHorizontal,
+  ChevronRight as ArrowRight, ChevronLeft as ArrowLeft,
 } from 'lucide-react';
 
 export default function ChatV2Page() {
@@ -19,18 +21,21 @@ export default function ChatV2Page() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 高亮定位消息
+  const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
 
   const MAX_INPUT_LENGTH = 2000;
 
-  useEffect(() => {
-    checkAuth().then(() => setIsCheckingAuth(false));
-  }, []);
+  useEffect(() => { checkAuth().then(() => setIsCheckingAuth(false)); }, []);
 
   useEffect(() => {
     if (isCheckingAuth) return;
@@ -47,7 +52,6 @@ export default function ChatV2Page() {
 
   useEffect(() => { scrollToBottom(); }, [messages]);
 
-  // 自适应 textarea 高度
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -55,9 +59,7 @@ export default function ChatV2Page() {
     ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
   }, [input]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
   const loadSessions = () => {
     const stored = chatStorage.getSessions();
@@ -70,11 +72,8 @@ export default function ChatV2Page() {
 
   const doCreateSession = () => {
     const s: StoredSession = {
-      id: `session_${Date.now()}`,
-      title: '新对话',
-      pinned: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      id: `session_${Date.now()}`, title: '新对话', pinned: false,
+      createdAt: Date.now(), updatedAt: Date.now(),
     };
     chatStorage.saveSession(s);
     setCurrentSessionId(s.id);
@@ -86,14 +85,14 @@ export default function ChatV2Page() {
   const handleSessionSelect = (sid: string) => {
     if (isLoading) stopGeneration();
     setCurrentSessionId(sid);
+    setShowFavorites(false);
   };
 
   const handleDeleteSession = (sid: string) => {
     chatStorage.deleteSession(sid);
     if (currentSessionId === sid) {
       const rem = chatStorage.getSessions();
-      if (rem.length === 0) doCreateSession();
-      else setCurrentSessionId(rem[0].id);
+      if (rem.length === 0) doCreateSession(); else setCurrentSessionId(rem[0].id);
     }
     setSessions(chatStorage.getSessions());
   };
@@ -111,9 +110,7 @@ export default function ChatV2Page() {
   };
 
   const handleExport = (sid: string, fmt: 'txt' | 'md') => {
-    const content = fmt === 'txt'
-      ? chatStorage.exportSessionAsText(sid)
-      : chatStorage.exportSessionAsMarkdown(sid);
+    const content = fmt === 'txt' ? chatStorage.exportSessionAsText(sid) : chatStorage.exportSessionAsMarkdown(sid);
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -121,47 +118,52 @@ export default function ChatV2Page() {
     URL.revokeObjectURL(url);
   };
 
-  const handleToggleFavorite = (msgId: string) => {
+  const handleToggleFavorite = (messageId: string) => {
     if (!currentSessionId) return;
-    chatStorage.toggleMessageFavorite(currentSessionId, msgId);
+    chatStorage.toggleMessageFavorite(currentSessionId, messageId);
     setMessages(chatStorage.getSessionMessages(currentSessionId));
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading || !currentSessionId) return;
-    if (input.length > MAX_INPUT_LENGTH) { alert(`超过 ${MAX_INPUT_LENGTH} 字符限制`); return; }
+  // 跳转到指定会话的指定消息并高亮
+  const handleJumpToMessage = (sessionId: string, messageId: string) => {
+    setShowFavorites(false);
+    if (currentSessionId !== sessionId) {
+      setCurrentSessionId(sessionId);
+      // 等待消息加载后跳转
+      setTimeout(() => scrollAndHighlight(messageId), 300);
+    } else {
+      scrollAndHighlight(messageId);
+    }
+  };
 
-    const content = input.trim();
+  const scrollAndHighlight = (messageId: string) => {
+    const el = messageRefs.current[messageId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightedMsgId(messageId);
+      setTimeout(() => setHighlightedMsgId(null), 2500);
+    }
+  };
+
+  // ---- 核心发送逻辑 ----
+  const doStream = useCallback(async (
+    messageContent: string,
+    sessId: string,
+    aiMsgId: string,
+    variantId?: string,
+  ) => {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const sessId = currentSessionId;
-
-    const userMsg: StoredMessage = {
-      id: `msg_${Date.now()}`,
-      sessionId: sessId, role: 'user', content,
-      createdAt: Date.now(), favorited: false, requestId,
-    };
-    chatStorage.saveMessage(userMsg);
-    const withUser = [...messages, userMsg];
-    setMessages(withUser);
-    setInput('');
-    setIsLoading(true);
-
-    const aiMsgId = `msg_${Date.now() + 1}_ai`;
-    setMessages([...withUser, {
-      id: aiMsgId, sessionId: sessId, role: 'assistant', content: '',
-      createdAt: Date.now() + 1, favorited: false, requestId,
-    }]);
-
     let accumulated = '';
     const ctrl = new AbortController();
     abortControllerRef.current = ctrl;
+    setIsLoading(true);
 
     try {
       const res = await fetch('/api/chat/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: content, sessionId: sessId,
+          message: messageContent, sessionId: sessId,
           character: 'gentle', mode: 'companion',
           userId: user?.id, requestId,
         }),
@@ -181,6 +183,7 @@ export default function ChatV2Page() {
         buf += dec.decode(value, { stream: true });
         const lines = buf.split('\n');
         buf = lines.pop() ?? '';
+
         for (const line of lines) {
           const t = line.trim();
           if (!t.startsWith('data:')) continue;
@@ -191,16 +194,31 @@ export default function ChatV2Page() {
             if (ev.type === 'content' && typeof ev.content === 'string') {
               accumulated += ev.content;
               const snap = accumulated;
-              setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: snap } : m));
+
+              if (variantId) {
+                // 重新生成模式：更新 variant
+                chatStorage.updateVariantContent(sessId, aiMsgId, variantId, snap);
+                setMessages(chatStorage.getSessionMessages(sessId));
+              } else {
+                // 普通模式
+                setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, content: snap } : m));
+              }
             } else if (ev.type === 'done') {
-              chatStorage.saveMessage({
-                id: aiMsgId, sessionId: sessId, role: 'assistant',
-                content: accumulated, createdAt: Date.now(), favorited: false, requestId,
-              });
+              if (variantId) {
+                chatStorage.updateVariantContent(sessId, aiMsgId, variantId, accumulated, 'done');
+              } else {
+                chatStorage.saveMessage({
+                  id: aiMsgId, sessionId: sessId, role: 'assistant',
+                  content: accumulated, createdAt: Date.now(), favorited: false, requestId,
+                });
+              }
+              setMessages(chatStorage.getSessionMessages(sessId));
+
+              // 自动命名会话
               const list = chatStorage.getSessions();
               const cur = list.find(x => x.id === sessId);
               if (cur && cur.title === '新对话') {
-                cur.title = content.slice(0, 20) + (content.length > 20 ? '...' : '');
+                cur.title = messageContent.slice(0, 20) + (messageContent.length > 20 ? '...' : '');
                 cur.updatedAt = Date.now();
                 chatStorage.saveSession(cur);
                 setSessions(chatStorage.getSessions());
@@ -210,14 +228,77 @@ export default function ChatV2Page() {
         }
       }
     } catch (err: any) {
-      if (err?.name !== 'AbortError') {
-        console.error('sendMessage error:', err);
-        if (!accumulated) setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+      if (err?.name === 'AbortError') {
+        // 用户停止：标记当前 variant 为 cancelled
+        if (variantId) {
+          chatStorage.updateVariantContent(sessId, aiMsgId, variantId, accumulated, 'cancelled');
+          setMessages(chatStorage.getSessionMessages(sessId));
+        }
+      } else {
+        console.error('Stream error:', err);
+        if (variantId) {
+          chatStorage.updateVariantContent(sessId, aiMsgId, variantId, accumulated, 'error');
+          setMessages(chatStorage.getSessionMessages(sessId));
+        } else if (!accumulated) {
+          setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+        }
       }
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
+  }, [user?.id]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading || !currentSessionId) return;
+    if (input.length > MAX_INPUT_LENGTH) { alert(`超过 ${MAX_INPUT_LENGTH} 字符限制`); return; }
+
+    const content = input.trim();
+    const sessId = currentSessionId;
+
+    const userMsg: StoredMessage = {
+      id: `msg_${Date.now()}`, sessionId: sessId, role: 'user', content,
+      createdAt: Date.now(), favorited: false,
+    };
+    chatStorage.saveMessage(userMsg);
+    const withUser = [...messages, userMsg];
+    setMessages(withUser);
+    setInput('');
+
+    const aiMsgId = `msg_${Date.now() + 1}_ai`;
+    const aiPlaceholder: StoredMessage = {
+      id: aiMsgId, sessionId: sessId, role: 'assistant', content: '',
+      createdAt: Date.now() + 1, favorited: false,
+    };
+    chatStorage.saveMessage(aiPlaceholder);
+    setMessages([...withUser, aiPlaceholder]);
+
+    await doStream(content, sessId, aiMsgId);
+  };
+
+  // 重新生成指定 assistant 消息
+  const handleRegenerate = async (msg: StoredMessage) => {
+    if (isLoading || !currentSessionId) return;
+    const sessId = currentSessionId;
+
+    // 找到该消息前最后一条 user 消息作为上下文
+    const msgIndex = messages.findIndex(m => m.id === msg.id);
+    const prevUser = [...messages].slice(0, msgIndex).reverse().find(m => m.role === 'user');
+    if (!prevUser) return;
+
+    // 添加新 variant
+    const variantId = chatStorage.addVariant(sessId, msg.id, `req_${Date.now()}`);
+    if (!variantId) return;
+    setMessages(chatStorage.getSessionMessages(sessId));
+
+    await doStream(prevUser.content, sessId, msg.id, variantId);
+  };
+
+  // 切换版本
+  const handleSwitchVariant = (msg: StoredMessage, variantId: string) => {
+    if (!currentSessionId) return;
+    chatStorage.switchVariant(currentSessionId, msg.id, variantId);
+    setMessages(chatStorage.getSessionMessages(currentSessionId));
   };
 
   const stopGeneration = () => {
@@ -233,10 +314,7 @@ export default function ChatV2Page() {
   if (isCheckingAuth) {
     return (
       <div className="flex h-screen items-center justify-center bg-[#1C1C1E]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent mx-auto" />
-          <p className="mt-3 text-gray-400 text-sm">加载中...</p>
-        </div>
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-500 border-t-transparent" />
       </div>
     );
   }
@@ -247,16 +325,12 @@ export default function ChatV2Page() {
     <div className="flex h-screen bg-[#F7F8FA] overflow-hidden">
 
       {/* ===== 左侧深色侧边栏 ===== */}
-      <div
-        className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300 ease-in-out`}
-      >
+      <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300`}>
         {/* Logo + 折叠 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
           {!sidebarCollapsed && (
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">
-                AI
-              </div>
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">AI</div>
               <span className="text-white font-semibold text-sm">Chat 助手</span>
             </div>
           )}
@@ -268,20 +342,32 @@ export default function ChatV2Page() {
           </button>
         </div>
 
-        {/* 新建对话按钮 */}
-        <div className="px-3 py-3">
+        {/* 新建对话 */}
+        <div className="px-3 py-3 space-y-1">
           <button
             onClick={doCreateSession}
             className={`flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
-            title="新建对话"
           >
             <PenSquare size={16} />
             {!sidebarCollapsed && '新建对话'}
           </button>
+
+          {/* 收藏入口 */}
+          {!sidebarCollapsed && (
+            <button
+              onClick={() => setShowFavorites(v => !v)}
+              className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-sm transition-colors ${
+                showFavorites ? 'bg-amber-500/20 text-amber-400' : 'text-gray-400 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <Star size={16} className={showFavorites ? 'fill-amber-400' : ''} />
+              收藏
+            </button>
+          )}
         </div>
 
-        {/* 会话列表区域 */}
-        {!sidebarCollapsed && (
+        {/* 会话列表 */}
+        {!sidebarCollapsed && !showFavorites && (
           <div className="flex-1 overflow-hidden flex flex-col">
             <SessionManager
               sessions={sessions}
@@ -296,13 +382,30 @@ export default function ChatV2Page() {
           </div>
         )}
 
+        {/* 收藏面板（侧边栏内嵌） */}
+        {!sidebarCollapsed && showFavorites && (
+          <div className="flex-1 overflow-hidden bg-white rounded-tl-2xl mt-2">
+            <FavoritesPanel
+              onJumpToMessage={handleJumpToMessage}
+              onClose={() => setShowFavorites(false)}
+            />
+          </div>
+        )}
+
+        {/* 折叠时的图标列表 */}
         {sidebarCollapsed && (
           <div className="flex-1 overflow-y-auto py-2">
-            {sessions.slice(0, 10).map(s => (
+            <button
+              onClick={() => setShowFavorites(v => !v)}
+              className={`w-full flex justify-center py-2.5 mb-1 ${showFavorites ? 'text-amber-400' : 'text-gray-500 hover:text-white'}`}
+            >
+              <Star size={18} className={showFavorites ? 'fill-amber-400' : ''} />
+            </button>
+            {sessions.slice(0, 8).map(s => (
               <button
                 key={s.id}
                 onClick={() => handleSessionSelect(s.id)}
-                className={`w-full flex items-center justify-center py-2.5 hover:bg-white/10 transition-colors ${currentSessionId === s.id ? 'bg-white/15' : ''}`}
+                className={`w-full flex justify-center py-2.5 hover:bg-white/10 transition-colors ${currentSessionId === s.id ? 'bg-white/15' : ''}`}
                 title={s.title}
               >
                 <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-gray-300 text-xs">
@@ -313,61 +416,46 @@ export default function ChatV2Page() {
           </div>
         )}
 
-        {/* 底部用户信息 */}
+        {/* 用户信息 */}
         <div className={`border-t border-white/10 px-3 py-3 flex items-center gap-2 ${sidebarCollapsed ? 'justify-center' : ''}`}>
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-orange-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">
             {user?.nickname?.slice(0, 1)?.toUpperCase() || 'U'}
           </div>
-          {!sidebarCollapsed && (
-            <span className="text-gray-300 text-sm truncate flex-1">{user?.nickname || '用户'}</span>
-          )}
+          {!sidebarCollapsed && <span className="text-gray-300 text-sm truncate flex-1">{user?.nickname || '用户'}</span>}
         </div>
       </div>
 
-      {/* ===== 右侧主聊天区域 ===== */}
+      {/* ===== 主聊天区域 ===== */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
-
         {/* 顶栏 */}
         <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <h1 className="font-medium text-gray-900 text-base">
-              {currentSession?.title || '新对话'}
-            </h1>
-            {currentSession?.pinned && (
-              <span className="text-xs text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full">已置顶</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
+          <h1 className="font-medium text-gray-900 text-base">
+            {showFavorites ? '⭐ 收藏' : (currentSession?.title || '新对话')}
+          </h1>
+          {!showFavorites && (
             <button
               onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
             >
-              <Download size={15} />
-              导出
+              <Download size={15} />导出
             </button>
-          </div>
+          )}
         </div>
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
-            {messages.length === 0 && (
+            {messages.length === 0 && !showFavorites && (
               <div className="flex flex-col items-center justify-center py-24 gap-4 select-none">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
-                  AI
-                </div>
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">AI</div>
                 <div className="text-center">
                   <h2 className="text-xl font-semibold text-gray-800 mb-1">你好！我是 AI 助手</h2>
                   <p className="text-gray-500 text-sm">有什么我可以帮你的吗？</p>
                 </div>
-                {/* 建议问题 */}
                 <div className="grid grid-cols-2 gap-3 mt-4 w-full max-w-md">
                   {['帮我写一首诗', '解释量子力学', '推荐几本好书', '帮我做个计划'].map(q => (
-                    <button
-                      key={q}
-                      onClick={() => setInput(q)}
-                      className="px-4 py-3 text-sm text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 text-left transition-colors"
-                    >
+                    <button key={q} onClick={() => setInput(q)}
+                      className="px-4 py-3 text-sm text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-xl border border-gray-200 text-left transition-colors">
                       {q}
                     </button>
                   ))}
@@ -378,24 +466,32 @@ export default function ChatV2Page() {
             {messages.map(msg => {
               const isUser = msg.role === 'user';
               const isEmpty = !msg.content && !isUser;
+              const variants = msg.variants || [];
+              const activeVariantId = msg.activeVariantId;
+              const activeVariant = variants.find(v => v.variantId === activeVariantId);
+              const activeIdx = variants.findIndex(v => v.variantId === activeVariantId);
+              const isStreaming = activeVariant?.status === 'streaming';
+              const isLastAssistant = !isUser && msg.id === [...messages].reverse().find(m => m.role === 'assistant')?.id;
 
               return (
-                <div key={msg.id} className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                <div
+                  key={msg.id}
+                  ref={el => { messageRefs.current[msg.id] = el; }}
+                  className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'} transition-all duration-300 ${
+                    highlightedMsgId === msg.id ? 'bg-amber-50 rounded-2xl px-3 py-2 -mx-3' : ''
+                  }`}
+                >
                   {/* AI 头像 */}
                   {!isUser && (
-                    <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5">
-                      AI
-                    </div>
+                    <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5">AI</div>
                   )}
 
                   <div className={`group relative ${isUser ? 'max-w-[70%]' : 'flex-1 min-w-0'}`}>
                     {isUser ? (
-                      /* 用户消息气泡 */
                       <div className="bg-blue-600 text-white px-4 py-3 rounded-2xl rounded-tr-sm text-sm leading-relaxed shadow-sm">
                         <p className="whitespace-pre-wrap">{msg.content}</p>
                       </div>
                     ) : (
-                      /* AI 消息：无气泡，直接文字 */
                       <div>
                         {isEmpty ? (
                           <div className="flex items-center gap-1.5 py-2">
@@ -412,7 +508,34 @@ export default function ChatV2Page() {
                           </div>
                         )}
 
-                        {/* 底部操作栏 */}
+                        {/* 版本切换控件 */}
+                        {variants.length > 1 && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              disabled={activeIdx <= 0}
+                              onClick={() => handleSwitchVariant(msg, variants[activeIdx - 1].variantId)}
+                              className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-30 text-gray-500"
+                            >
+                              <ArrowLeft size={14} />
+                            </button>
+                            <span className="text-xs text-gray-400">{activeIdx + 1} / {variants.length}</span>
+                            <button
+                              disabled={activeIdx >= variants.length - 1}
+                              onClick={() => handleSwitchVariant(msg, variants[activeIdx + 1].variantId)}
+                              className="p-0.5 rounded hover:bg-gray-100 disabled:opacity-30 text-gray-500"
+                            >
+                              <ArrowRight size={14} />
+                            </button>
+                            {activeVariant?.status === 'cancelled' && (
+                              <span className="text-xs text-gray-400 ml-1">已停止</span>
+                            )}
+                            {activeVariant?.status === 'error' && (
+                              <span className="text-xs text-red-400 ml-1">生成失败</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* 操作栏 */}
                         {msg.content && (
                           <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <MessageActions
@@ -420,6 +543,8 @@ export default function ChatV2Page() {
                               content={msg.content}
                               favorited={msg.favorited}
                               onToggleFavorite={() => handleToggleFavorite(msg.id)}
+                              onRegenerate={isLastAssistant ? () => handleRegenerate(msg) : undefined}
+                              isRegenerating={isStreaming}
                             />
                           </div>
                         )}
@@ -440,49 +565,43 @@ export default function ChatV2Page() {
           </div>
         </div>
 
-        {/* ===== 底部输入区域 ===== */}
-        <div className="border-t border-gray-100 bg-white px-6 py-4">
-          <div className="max-w-3xl mx-auto">
-            <div className="relative flex items-end gap-3 bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-md transition-all">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="给 AI 助手发送消息..."
-                disabled={isLoading}
-                rows={1}
-                className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-800 placeholder-gray-400 disabled:text-gray-400"
-                style={{ minHeight: '24px', maxHeight: '160px' }}
-              />
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span className={`text-xs ${input.length > MAX_INPUT_LENGTH * 0.9 ? (input.length > MAX_INPUT_LENGTH ? 'text-red-500' : 'text-amber-500') : 'text-gray-300'}`}>
-                  {input.length > 0 ? `${input.length}/${MAX_INPUT_LENGTH}` : ''}
-                </span>
-                {isLoading ? (
-                  <button
-                    onClick={stopGeneration}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-medium transition-colors"
-                  >
-                    <StopCircle size={15} />
-                    停止
-                  </button>
-                ) : (
-                  <button
-                    onClick={sendMessage}
-                    disabled={!input.trim()}
-                    className="w-9 h-9 flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white rounded-xl transition-colors disabled:cursor-not-allowed"
-                  >
-                    <Send size={16} />
-                  </button>
-                )}
+        {/* 输入区域 */}
+        {!showFavorites && (
+          <div className="border-t border-gray-100 bg-white px-6 py-4">
+            <div className="max-w-3xl mx-auto">
+              <div className="relative flex items-end gap-3 bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-md transition-all">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="给 AI 助手发送消息..."
+                  disabled={isLoading}
+                  rows={1}
+                  className="flex-1 bg-transparent resize-none outline-none text-sm text-gray-800 placeholder-gray-400 disabled:text-gray-400"
+                  style={{ minHeight: '24px', maxHeight: '160px' }}
+                />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={`text-xs ${input.length > MAX_INPUT_LENGTH * 0.9 ? (input.length > MAX_INPUT_LENGTH ? 'text-red-500' : 'text-amber-500') : 'text-gray-300'}`}>
+                    {input.length > 0 ? `${input.length}/${MAX_INPUT_LENGTH}` : ''}
+                  </span>
+                  {isLoading ? (
+                    <button onClick={stopGeneration}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-medium transition-colors">
+                      <StopCircle size={15} />停止
+                    </button>
+                  ) : (
+                    <button onClick={sendMessage} disabled={!input.trim()}
+                      className="w-9 h-9 flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white rounded-xl transition-colors disabled:cursor-not-allowed">
+                      <Send size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
+              <p className="text-center text-xs text-gray-400 mt-2">Enter 发送 · Shift+Enter 换行</p>
             </div>
-            <p className="text-center text-xs text-gray-400 mt-2">
-              Enter 发送 · Shift+Enter 换行
-            </p>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
