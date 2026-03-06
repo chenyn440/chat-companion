@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search, UserPlus, Check, X, Users, Loader2, MessageCircle } from 'lucide-react';
-import DmChat from './DmChat';
 
 interface UserInfo {
   id: string;
@@ -19,6 +19,7 @@ interface FriendsDialogProps {
 type Tab = 'list' | 'add' | 'requests';
 
 export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>('list');
   const [friends, setFriends] = useState<(UserInfo & { createdAt: number })[]>([]);
   const [searchQ, setSearchQ] = useState('');
@@ -28,7 +29,6 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
   const [requests, setRequests] = useState<{ received: any[]; sent: any[] }>({ received: [], sent: [] });
   const [processing, setProcessing] = useState<Record<string, boolean>>({});
   const [friendSearch, setFriendSearch] = useState('');
-  const [dmFriend, setDmFriend] = useState<UserInfo | null>(null); // 当前私聊对象
 
   const headers = { 'x-user-id': userId, 'Content-Type': 'application/json' };
 
@@ -148,7 +148,19 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
                       <p className="text-xs text-gray-400">{f.phone}</p>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                      <button onClick={() => setDmFriend(f)}
+                      <button onClick={async () => {
+                        // 先创建/获取会话，再跳转
+                        const r = await fetch('/api/dm/conversations', {
+                          method: 'POST',
+                          headers: { 'x-user-id': userId, 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ friendId: f.id }),
+                        });
+                        const d = await r.json();
+                        if (d.success) {
+                          onClose();
+                          router.push(`/dm/${d.data.conversationId}`);
+                        }
+                      }}
                         className="flex items-center gap-1 text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg">
                         <MessageCircle size={12} />私信
                       </button>
@@ -275,15 +287,6 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
           )}
         </div>
       </div>
-
-      {/* 私聊弹窗 */}
-      {dmFriend && (
-        <DmChat
-          userId={userId}
-          friend={dmFriend}
-          onClose={() => setDmFriend(null)}
-        />
-      )}
     </div>
   );
 }
