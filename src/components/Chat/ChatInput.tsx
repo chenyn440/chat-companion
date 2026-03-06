@@ -59,21 +59,15 @@ export default function ChatInput() {
         
         async onopen(response) {
           console.log('SSE Response status:', response.status);
-          console.log('SSE Response headers:', response.headers);
+          console.log('SSE Response content-type:', response.headers.get('content-type'));
           
-          if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
+          if (response.ok) {
             console.log('SSE connection opened successfully');
             return; // 一切正常
-          } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-            // 客户端错误，不重试
-            const errorText = await response.text();
-            console.error('Client error:', response.status, errorText);
-            throw new FatalError(`请求错误 (${response.status}): ${errorText}`);
           } else {
-            // 服务器错误或其他问题，可以重试
             const errorText = await response.text();
-            console.error('Server error:', response.status, errorText);
-            throw new RetriableError(`服务器错误 (${response.status})`);
+            console.error('HTTP error:', response.status, errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
           }
         },
         
@@ -83,9 +77,11 @@ export default function ChatInput() {
             const data = JSON.parse(event.data);
             
             if (data.type === 'session') {
+              console.log('Session ID:', data.sessionId);
               setSessionId(data.sessionId);
             } else if (data.type === 'content') {
               accumulatedContent += data.content;
+              console.log('Accumulated content:', accumulatedContent);
               updateLastMessage(accumulatedContent);
             } else if (data.type === 'done') {
               console.log('Stream completed');
@@ -99,19 +95,15 @@ export default function ChatInput() {
         },
         
         onerror(err) {
-          console.error('SSE error:', err);
+          console.error('SSE onerror triggered:', err);
           
-          if (err instanceof FatalError) {
-            updateLastMessage('抱歉，请求失败：' + err.message);
-            throw err; // 停止重连
-          }
-          
-          // 对于其他错误，显示友好提示但允许重试
+          // 不要立即更新错误消息，等待看是否能恢复
           if (!accumulatedContent) {
-            updateLastMessage('网络错误，正在重试...');
+            console.log('No content received yet, showing error');
+            updateLastMessage('网络错误，请检查连接后重试');
           }
           
-          // 抛出错误以停止重连（我们不想无限重试）
+          // 抛出错误停止重连
           throw err;
         },
         
@@ -120,13 +112,15 @@ export default function ChatInput() {
         },
       });
     } catch (error: any) {
-      console.error('Send message error:', error);
+      console.error('fetchEventSource error:', error);
       if (error.name === 'AbortError') {
         console.log('Request aborted by user');
       } else if (!accumulatedContent) {
+        console.log('Setting error message in catch block');
         updateLastMessage('抱歉，发送失败了，请再试一次。');
       }
     } finally {
+      console.log('Finally block, setting loading to false');
       setLoading(false);
       abortControllerRef.current = null;
     }
