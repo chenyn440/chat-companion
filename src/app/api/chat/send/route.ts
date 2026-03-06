@@ -2,26 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db/mongoose';
 import Session from '@/models/Session';
 import { chatWithZhipu } from '@/lib/services/zhipu';
-
-// AI 角色设定
-const characters = {
-  gentle: {
-    name: '温柔知心',
-    prompt: '你是一位温柔体贴的倾听者，说话柔和、富有同理心，擅长情感支持和安慰。',
-  },
-  rational: {
-    name: '理性分析',
-    prompt: '你是一位理性的分析师，说话简洁明了，擅长逻辑分析和给出实用建议。',
-  },
-  funny: {
-    name: '幽默风趣',
-    prompt: '你是一位幽默风趣的朋友，说话轻松有趣，擅长用幽默化解尴尬和烦恼。',
-  },
-  elder: {
-    name: '长辈关怀',
-    prompt: '你是一位慈祥的长辈，说话温和有阅历，擅长用人生经验给予指导。',
-  },
-};
+import { getCharacterById } from '@/lib/config/characters';
 
 // 聊天模式设定
 const modes = {
@@ -67,10 +48,10 @@ export async function POST(req: NextRequest) {
     });
 
     // 构建 AI 提示词
-    const characterPrompt = characters[character as keyof typeof characters]?.prompt || characters.gentle.prompt;
+    const characterConfig = getCharacterById(character);
     const modePrompt = modes[mode as keyof typeof modes] || modes.companion;
-
-    const systemPrompt = `${characterPrompt}\n\n当前模式：${modePrompt}\n\n请根据以上设定回复用户。`;
+    
+    const systemPrompt = `${characterConfig.prompt}\n\n当前模式：${modePrompt}\n\n请根据以上设定回复用户。`;
 
     // 调用智谱 API
     const zhipuMessages = [

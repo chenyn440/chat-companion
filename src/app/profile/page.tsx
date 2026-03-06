@@ -4,6 +4,13 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
 import { ChevronLeft, User, MessageSquare, Calendar, Star, Settings, Smile } from 'lucide-react';
 import Link from 'next/link';
+import { CHARACTERS } from '@/lib/config/characters';
+
+const MODES = [
+  { value: 'companion', label: '陪伴' },
+  { value: 'treehole', label: '树洞' },
+  { value: 'advice', label: '建议' },
+];
 
 interface UserStats {
   totalSessions: number;
@@ -52,6 +59,29 @@ export default function ProfilePage() {
       }
     } catch (error) {
       console.error('Fetch stats error:', error);
+    }
+  };
+
+  const handleUpdatePreferences = async (preferences: { defaultCharacter?: string; defaultMode?: string }) => {
+    if (!user?.id) return;
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId: user.id, 
+          preferences: { ...user.preferences, ...preferences }
+        }),
+      });
+      const data = await res.json();
+      if (data.success && user) {
+        setUser({ ...user, preferences: data.data.preferences || { ...user.preferences, ...preferences } });
+      } else {
+        alert(data.error || '设置失败，请重试');
+      }
+    } catch (error) {
+      console.error('Update preferences error:', error);
+      alert('网络错误，请重试');
     }
   };
 
@@ -210,13 +240,43 @@ export default function ProfilePage() {
               </span>
               <ChevronLeft className="transform rotate-180" size={18} />
             </Link>
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <span>默认角色</span>
-              <span className="text-gray-500">{user?.preferences?.defaultCharacter || '温柔知心'}</span>
+            {/* 默认角色选择 */}
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-700 mb-2">默认角色</p>
+              <div className="flex flex-wrap gap-2">
+                {CHARACTERS.map((char) => (
+                  <button
+                    key={char.id}
+                    onClick={() => handleUpdatePreferences({ defaultCharacter: char.id })}
+                    className={`px-3 py-1 rounded-full text-sm transition ${
+                      (user?.preferences?.defaultCharacter || 'gentle') === char.id
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {char.avatar} {char.name}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-              <span>默认模式</span>
-              <span className="text-gray-500">{user?.preferences?.defaultMode || '陪伴'}</span>
+            {/* 默认模式选择 */}
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-700 mb-2">默认模式</p>
+              <div className="flex flex-wrap gap-2">
+                {MODES.map((mode) => (
+                  <button
+                    key={mode.value}
+                    onClick={() => handleUpdatePreferences({ defaultMode: mode.value })}
+                    className={`px-3 py-1 rounded-full text-sm transition ${
+                      (user?.preferences?.defaultMode || 'companion') === mode.value
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

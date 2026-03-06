@@ -1,5 +1,8 @@
 import mongoose from 'mongoose';
 
+// Silence Mongoose v7 strictQuery default-change warning.
+mongoose.set('strictQuery', false);
+
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-companion';
 
 if (!MONGODB_URI) {

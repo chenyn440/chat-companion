@@ -74,7 +74,10 @@ export default function MoodPage() {
   };
 
   const saveMood = async () => {
-    if (!user?.id || !selectedMood) return;
+    if (!user?.id || !selectedMood) {
+      alert('请先选择心情');
+      return;
+    }
     
     setSaving(true);
     try {
@@ -90,13 +93,17 @@ export default function MoodPage() {
       
       const data = await res.json();
       if (data.success) {
+        alert('心情记录保存成功！');
         setContent('');
         setSelectedMood('');
         fetchMoods();
         fetchStats();
+      } else {
+        alert(data.error || '保存失败，请重试');
       }
     } catch (error) {
       console.error('Save mood error:', error);
+      alert('网络错误，请重试');
     } finally {
       setSaving(false);
     }

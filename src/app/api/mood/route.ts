@@ -49,15 +49,6 @@ export async function POST(req: NextRequest) {
   try {
     await dbConnect();
     
-    // 验证登录状态
-    const token = req.cookies.get('token')?.value;
-    if (!token) {
-      return NextResponse.json(
-        { success: false, error: '请先登录' },
-        { status: 401 }
-      );
-    }
-    
     const { userId, mood, content, date } = await req.json();
     
     if (!userId || !mood) {

@@ -59,6 +59,16 @@ export default function ChatPage() {
     }
   }, [isLoggedIn, isCheckingAuth, user?.id]);
 
+  // 角色加载完成后，应用用户默认偏好
+  useEffect(() => {
+    if (characters.length > 0 && user?.preferences?.defaultCharacter) {
+      const defaultChar = characters.find(c => c._id === user.preferences!.defaultCharacter);
+      if (defaultChar) setSelectedCharacter(defaultChar);
+    } else if (characters.length > 0 && !selectedCharacter) {
+      setSelectedCharacter(characters[0]);
+    }
+  }, [characters, user?.preferences?.defaultCharacter]);
+
   const loadSessions = async () => {
     if (!user?.id) return;
     try {
@@ -126,6 +136,18 @@ export default function ChatPage() {
       });
 
       const data = await res.json();
+      
+      if (res.status === 401) {
+        alert('请先登录');
+        window.location.href = '/login';
+        return;
+      }
+      
+      if (!res.ok) {
+        alert(data.error || '服务异常，请稍后再试');
+        return;
+      }
+      
       if (data.success) {
         setSessionId(data.data.sessionId);
         const assistantMessage: Message = {
@@ -135,9 +157,16 @@ export default function ChatPage() {
           createdAt: data.data.timestamp,
         };
         setMessages((prev) => [...prev, assistantMessage]);
+        // 刷新会话列表
+        if (user?.id) {
+          loadSessions();
+        }
+      } else {
+        alert(data.error || '发送失败，请重试');
       }
     } catch (error) {
       console.error('Send message error:', error);
+      alert('网络错误，请检查连接后重试');
     } finally {
       setIsLoading(false);
     }
@@ -160,6 +189,12 @@ export default function ChatPage() {
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       const data = await res.json();
+      
+      if (!res.ok) {
+        alert(data.error || '加载对话失败');
+        return;
+      }
+      
       if (data.success && data.data.session) {
         const session = data.data.session;
         setSessionId(session.id);
@@ -172,9 +207,13 @@ export default function ChatPage() {
         // 设置角色
         const char = characters.find(c => c._id === session.character);
         if (char) setSelectedCharacter(char);
+        setShowSessions(false);
+      } else {
+        alert('对话数据加载失败');
       }
     } catch (error) {
       console.error('Load session error:', error);
+      alert('网络错误，请重试');
     }
   };
 
@@ -263,7 +302,10 @@ export default function ChatPage() {
               </div>
 
               {/* 话题推荐 */}
-              <TopicSuggestions onSelectTopic={(topic) => setInput(topic)} />
+              <TopicSuggestions 
+                onSelectTopic={(topic) => setInput(topic)} 
+                characterId={selectedCharacter?._id}
+              />
             </>
           )}
         </div>
