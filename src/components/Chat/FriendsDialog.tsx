@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, UserPlus, Check, X, Users, Loader2 } from 'lucide-react';
+import { Search, UserPlus, Check, X, Users, Loader2, MessageCircle } from 'lucide-react';
+import DmChat from './DmChat';
 
 interface UserInfo {
   id: string;
@@ -27,6 +28,7 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
   const [requests, setRequests] = useState<{ received: any[]; sent: any[] }>({ received: [], sent: [] });
   const [processing, setProcessing] = useState<Record<string, boolean>>({});
   const [friendSearch, setFriendSearch] = useState('');
+  const [dmFriend, setDmFriend] = useState<UserInfo | null>(null); // 当前私聊对象
 
   const headers = { 'x-user-id': userId, 'Content-Type': 'application/json' };
 
@@ -145,10 +147,16 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
                       <p className="font-medium text-gray-800 text-sm">{f.nickname}</p>
                       <p className="text-xs text-gray-400">{f.phone}</p>
                     </div>
-                    <button onClick={() => handleRemove(f.id)}
-                      className="opacity-0 group-hover:opacity-100 text-xs text-red-400 hover:text-red-600 transition-all px-2 py-1 rounded-lg hover:bg-red-50">
-                      解除
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      <button onClick={() => setDmFriend(f)}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg">
+                        <MessageCircle size={12} />私信
+                      </button>
+                      <button onClick={() => handleRemove(f.id)}
+                        className="text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50">
+                        解除
+                      </button>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -267,6 +275,15 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
           )}
         </div>
       </div>
+
+      {/* 私聊弹窗 */}
+      {dmFriend && (
+        <DmChat
+          userId={userId}
+          friend={dmFriend}
+          onClose={() => setDmFriend(null)}
+        />
+      )}
     </div>
   );
 }
