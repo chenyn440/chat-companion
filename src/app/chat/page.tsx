@@ -122,8 +122,20 @@ export default function ChatPage() {
     setInput('');
     setIsLoading(true);
 
+    // 添加空的 AI 消息占位
+    const aiMessageId = Date.now().toString() + '_ai';
+    const aiMessage: Message = {
+      _id: aiMessageId,
+      role: 'assistant',
+      content: '',
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, aiMessage]);
+
+    let accumulatedContent = '';
+
     try {
-      const res = await fetch('/api/chat/send', {
+      const response = await fetch('/api/chat/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -135,38 +147,79 @@ export default function ChatPage() {
         }),
       });
 
-      const data = await res.json();
-      
-      if (res.status === 401) {
+      if (response.status === 401) {
         alert('请先登录');
         window.location.href = '/login';
         return;
       }
-      
-      if (!res.ok) {
-        alert(data.error || '服务异常，请稍后再试');
+
+      if (!response.ok) {
+        alert('服务异常，请稍后再试');
         return;
       }
-      
-      if (data.success) {
-        setSessionId(data.data.sessionId);
-        const assistantMessage: Message = {
-          _id: Date.now().toString() + '_ai',
-          role: 'assistant',
-          content: data.data.aiReply,
-          createdAt: data.data.timestamp,
-        };
-        setMessages((prev) => [...prev, assistantMessage]);
-        // 刷新会话列表
-        if (user?.id) {
-          loadSessions();
+
+      // 读取 SSE 流
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+          const data = trimmedLine.slice(6).trim();
+
+          try {
+            const parsed = JSON.parse(data);
+
+            if (parsed.type === 'session') {
+              setSessionId(parsed.sessionId);
+            } else if (parsed.type === 'content') {
+              accumulatedContent += parsed.content;
+              // 更新最后一条消息的内容
+              setMessages((prev) => {
+                const newMessages = [...prev];
+                const lastIndex = newMessages.length - 1;
+                if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
+                  newMessages[lastIndex] = {
+                    ...newMessages[lastIndex],
+                    content: accumulatedContent,
+                  };
+                }
+                return newMessages;
+              });
+            } else if (parsed.type === 'done') {
+              console.log('Stream completed');
+              // 刷新会话列表
+              if (user?.id) {
+                loadSessions();
+              }
+            } else if (parsed.type === 'error') {
+              console.error('Stream error:', parsed.error);
+              alert('AI 服务出错：' + parsed.error);
+            }
+          } catch (e) {
+            console.error('Parse error:', e);
+          }
         }
-      } else {
-        alert(data.error || '发送失败，请重试');
       }
     } catch (error) {
       console.error('Send message error:', error);
       alert('网络错误，请检查连接后重试');
+      // 移除空的 AI 消息
+      setMessages((prev) => prev.filter(m => m._id !== aiMessageId));
     } finally {
       setIsLoading(false);
     }
@@ -189,12 +242,12 @@ export default function ChatPage() {
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`);
       const data = await res.json();
-      
+
       if (!res.ok) {
         alert(data.error || '加载对话失败');
         return;
       }
-      
+
       if (data.success && data.data.session) {
         const session = data.data.session;
         setSessionId(session.id);
@@ -286,11 +339,10 @@ export default function ChatPage() {
                     <button
                       key={char._id}
                       onClick={() => setSelectedCharacter(char)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg transition text-left ${
-                        selectedCharacter?._id === char._id
-                          ? 'bg-blue-50 border-blue-200 border'
-                          : 'hover:bg-gray-50'
-                      }`}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg transition text-left ${selectedCharacter?._id === char._id
+                        ? 'bg-blue-50 border-blue-200 border'
+                        : 'hover:bg-gray-50'
+                        }`}
                     >
                       <span className="text-2xl">{char.avatar}</span>
                       <div>
@@ -302,8 +354,8 @@ export default function ChatPage() {
               </div>
 
               {/* 话题推荐 */}
-              <TopicSuggestions 
-                onSelectTopic={(topic) => setInput(topic)} 
+              <TopicSuggestions
+                onSelectTopic={(topic) => setInput(topic)}
                 characterId={selectedCharacter?._id}
               />
             </>
@@ -349,16 +401,14 @@ export default function ChatPage() {
           {messages.map((message) => (
             <div
               key={message._id}
-              className={`flex ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
+              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                }`}
             >
               <div
-                className={`max-w-[70%] px-4 py-3 rounded-2xl ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-md'
-                    : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
-                }`}
+                className={`max-w-[70%] px-4 py-3 rounded-2xl ${message.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-br-md'
+                  : 'bg-white border border-gray-200 text-gray-800 rounded-bl-md'
+                  }`}
               >
                 <p className="whitespace-pre-wrap">{message.content}</p>
               </div>
