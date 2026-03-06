@@ -29,6 +29,7 @@ function ChatV2Inner() {
   const [showShare, setShowShare] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
+  const [deepThinking, setDeepThinking] = useState(false); // 深度思考开关（单次生效）
 
   const searchParams = useSearchParams();
   const [input, setInput] = useState(() => {
@@ -177,6 +178,7 @@ function ChatV2Inner() {
     sessId: string,
     aiMsgId: string,
     variantId?: string,
+    reasoningMode: 'normal' | 'deep' = 'normal',
   ) => {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     let accumulated = '';
@@ -192,6 +194,7 @@ function ChatV2Inner() {
           message: messageContent, sessionId: sessId,
           character: 'gentle', mode: 'companion',
           userId: user?.id, requestId,
+          reasoningMode,
         }),
         signal: ctrl.signal,
       });
@@ -281,6 +284,7 @@ function ChatV2Inner() {
 
     const content = input.trim();
     const sessId = currentSessionId;
+    const currentReasoningMode = deepThinking ? 'deep' : 'normal';
 
     const userMsg: StoredMessage = {
       id: `msg_${Date.now()}`, sessionId: sessId, role: 'user', content,
@@ -290,16 +294,18 @@ function ChatV2Inner() {
     const withUser = [...messages, userMsg];
     setMessages(withUser);
     setInput('');
+    setDeepThinking(false); // 单次生效后恢复
 
     const aiMsgId = `msg_${Date.now() + 1}_ai`;
     const aiPlaceholder: StoredMessage = {
       id: aiMsgId, sessionId: sessId, role: 'assistant', content: '',
       createdAt: Date.now() + 1, favorited: false,
-    };
+      deepThinking: currentReasoningMode === 'deep',
+    } as any;
     chatStorage.saveMessage(aiPlaceholder);
     setMessages([...withUser, aiPlaceholder]);
 
-    await doStream(content, sessId, aiMsgId);
+    await doStream(content, sessId, aiMsgId, undefined, currentReasoningMode);
   };
 
   // 重新生成指定 assistant 消息
@@ -601,6 +607,14 @@ function ChatV2Inner() {
                       </div>
                     ) : (
                       <div>
+                        {/* 深度思考标签 */}
+                        {msg.deepThinking && (
+                          <div className="flex items-center gap-1.5 mb-2">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-600 text-xs font-medium rounded-full border border-violet-200">
+                              🧠 深度思考
+                            </span>
+                          </div>
+                        )}
                         {(isEmpty || isStreaming && !activeVariant?.content) ? (
                           <div className="flex items-center gap-1.5 py-2">
                             <div className="flex gap-1">
@@ -711,7 +725,23 @@ function ChatV2Inner() {
                   )}
                 </div>
               </div>
-              <p className="text-center text-xs text-gray-400 mt-2">Enter 发送 · Shift+Enter 换行</p>
+              <div className="flex items-center justify-between mt-2">
+                {/* 深度思考按钮 */}
+                <button
+                  onClick={() => setDeepThinking(v => !v)}
+                  disabled={isLoading}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                    deepThinking
+                      ? 'bg-violet-100 text-violet-700 border border-violet-300 shadow-sm'
+                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span className={`text-sm ${deepThinking ? 'animate-pulse' : ''}`}>🧠</span>
+                  深度思考
+                  {deepThinking && <span className="text-violet-500 font-semibold">·</span>}
+                </button>
+                <p className="text-xs text-gray-400">Enter 发送 · Shift+Enter 换行</p>
+              </div>
             </div>
           </div>
       </div>

@@ -27,6 +27,7 @@ export interface StoredMessage {
   createdAt: number;
   favorited: boolean;
   requestId?: string;
+  deepThinking?: boolean;    // 是否使用深度思考模式
   variants?: Variant[];    // 仅 assistant 消息使用
   activeVariantId?: string;
 }

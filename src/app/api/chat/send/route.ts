@@ -2,8 +2,7 @@ import { NextRequest } from 'next/server';
 import dbConnect from '@/lib/db/mongoose';
 import Session from '@/models/Session';
 import { getCharacterById } from '@/lib/config/characters';
-
-const ZHIPU_API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+import { getModelConfig, PROVIDER_URLS, ReasoningMode } from '@/lib/config/modelRoutes';
 
 const modes = {
   treehole: '请只倾听，不要给建议，让用户尽情倾诉。',
@@ -11,11 +10,33 @@ const modes = {
   companion: '请像朋友一样轻松自然地聊天。',
 };
 
+// 按 provider 获取 API Key
+function getApiKey(provider: string): string | undefined {
+  if (provider === 'zhipu') return process.env.ZHIPU_API_KEY;
+  if (provider === 'groq')  return process.env.GROQ_API_KEY;
+  return undefined;
+}
+
+// 将错误状态码映射为用户友好提示
+function mapHttpError(status: number, provider: string): string {
+  if (status === 401 || status === 403) return `${provider} API Key 无效或无权限`;
+  if (status === 429) return '请求过于频繁，请稍后再试（或深度思考配额已用完）';
+  if (status >= 500) return `${provider} 服务暂时不可用，请稍后重试`;
+  return `AI 服务错误 (${status})`;
+}
+
 export async function POST(req: NextRequest) {
   try {
     await dbConnect();
 
-    const { message, sessionId, mode = 'companion', character = 'gentle', userId } = await req.json();
+    const {
+      message,
+      sessionId,
+      mode = 'companion',
+      character = 'gentle',
+      userId,
+      reasoningMode = 'normal',  // 新增：'normal' | 'deep'
+    } = await req.json();
 
     if (!message) {
       return new Response(JSON.stringify({ success: false, error: '消息不能为空' }), {
@@ -29,15 +50,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const apiKey = process.env.ZHIPU_API_KEY;
-    if (!apiKey || apiKey === 'your_zhipu_api_key_here') {
-      return new Response(JSON.stringify({ success: false, error: 'AI 服务未配置' }), {
-        status: 500, headers: { 'Content-Type': 'application/json' },
-      });
+    // 路由配置
+    const modelConfig = getModelConfig(reasoningMode as ReasoningMode);
+    const apiKey = getApiKey(modelConfig.provider);
+    const apiUrl = PROVIDER_URLS[modelConfig.provider];
+
+    if (!apiKey) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: reasoningMode === 'deep'
+          ? '深度思考服务未配置（需要 GROQ_API_KEY）'
+          : 'AI 服务未配置',
+      }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
 
+    console.log(`[chat] provider=${modelConfig.provider} model=${modelConfig.model} mode=${reasoningMode}`);
+
     // 获取或创建会话
-    // 注意：前端本地 sessionId 格式为 "session_xxx"，不是合法 MongoDB ObjectId，需过滤
     let session: any;
     if (sessionId && /^[0-9a-fA-F]{24}$/.test(sessionId)) {
       session = await Session.findById(sessionId);
@@ -53,7 +82,7 @@ export async function POST(req: NextRequest) {
     const modePrompt = modes[mode as keyof typeof modes] || modes.companion;
     const systemPrompt = `${characterConfig.prompt}\n\n当前模式：${modePrompt}\n\n请根据以上设定回复用户。`;
 
-    const zhipuMessages = [
+    const apiMessages = [
       { role: 'system', content: systemPrompt },
       ...session.messages.slice(-10).map((m: any) => ({
         role: m.role as 'user' | 'assistant',
@@ -61,30 +90,33 @@ export async function POST(req: NextRequest) {
       })),
     ];
 
-    // 直接调用智谱 API，拿到原始流
-    const zhipuRes = await fetch(ZHIPU_API_URL, {
+    // 调用 AI API
+    const aiRes = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'glm-4-flash',
-        messages: zhipuMessages,
+        model: modelConfig.model,
+        messages: apiMessages,
         temperature: 0.7,
+        max_tokens: modelConfig.limits.maxTokens,
         stream: true,
       }),
     });
 
-    if (!zhipuRes.ok) {
-      const errText = await zhipuRes.text();
-      console.error('Zhipu API error:', errText);
-      return new Response(JSON.stringify({ success: false, error: `AI 服务错误: ${zhipuRes.status}` }), {
-        status: 502, headers: { 'Content-Type': 'application/json' },
-      });
+    if (!aiRes.ok) {
+      const errText = await aiRes.text();
+      console.error(`${modelConfig.provider} API error ${aiRes.status}:`, errText);
+      return new Response(JSON.stringify({
+        success: false,
+        error: mapHttpError(aiRes.status, modelConfig.provider),
+        errorCode: aiRes.status,
+      }), { status: 502, headers: { 'Content-Type': 'application/json' } });
     }
 
-    if (!zhipuRes.body) {
+    if (!aiRes.body) {
       return new Response(JSON.stringify({ success: false, error: 'AI 响应体为空' }), {
         status: 502, headers: { 'Content-Type': 'application/json' },
       });
@@ -93,21 +125,23 @@ export async function POST(req: NextRequest) {
     const sessionDbId = session._id;
     const encoder = new TextEncoder();
 
-    // 创建转换流：把智谱原始 SSE → 我们自己的 SSE 格式
     const transformStream = new TransformStream({
       start(ctrl) {
-        // 先发 session 事件
         ctrl.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ type: 'session', sessionId: sessionDbId })}\n\n`)
+          encoder.encode(`data: ${JSON.stringify({
+            type: 'session',
+            sessionId: sessionDbId,
+            reasoningMode,            // 告知前端本次用的什么模式
+            model: modelConfig.model,
+          })}\n\n`)
         );
       },
     });
 
-    // 用一个 async 任务处理转换，不阻塞响应返回
     let fullReply = '';
     (async () => {
       const writer = transformStream.writable.getWriter();
-      const reader = zhipuRes.body!.getReader();
+      const reader = aiRes.body!.getReader();
       const dec = new TextDecoder();
       let buf = '';
 
@@ -128,17 +162,19 @@ export async function POST(req: NextRequest) {
 
             try {
               const chunk = JSON.parse(raw);
-              const content: string = chunk.choices?.[0]?.delta?.content ?? '';
+              const delta = chunk.choices?.[0]?.delta;
+
+              // DeepSeek R1 会有 reasoning_content 字段（思维链），P0 不展示
+              // 只取 content 部分
+              const content: string = delta?.content ?? '';
               if (content) {
                 fullReply += content;
                 await writer.write(
                   encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`)
                 );
               }
-              // finish_reason === 'stop' 代表结束
-              if (chunk.choices?.[0]?.finish_reason === 'stop') {
-                break;
-              }
+
+              if (chunk.choices?.[0]?.finish_reason === 'stop') break;
             } catch {
               // 单行解析失败，跳过
             }
@@ -153,7 +189,6 @@ export async function POST(req: NextRequest) {
           console.error('DB save error:', dbErr);
         }
 
-        // 发 done 事件
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
       } catch (err: any) {
         console.error('Stream processing error:', err);
@@ -161,9 +196,9 @@ export async function POST(req: NextRequest) {
           await writer.write(
             encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`)
           );
-        } catch { /* 写入失败（客户端断开），忽略 */ }
+        } catch { /* client disconnected */ }
       } finally {
-        try { await writer.close(); } catch { /* 已关闭，忽略 */ }
+        try { await writer.close(); } catch { /* already closed */ }
       }
     })();
 
