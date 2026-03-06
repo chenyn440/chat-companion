@@ -8,6 +8,11 @@ interface ChatMessageProps {
 export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
   
+  // 调试日志
+  if (!isUser) {
+    console.log('AI message content:', message.content, 'length:', message.content.length);
+  }
+  
   // 如果是空内容的 AI 消息，显示输入中的提示
   if (!message.content && !isUser) {
     return (

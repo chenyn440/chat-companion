@@ -38,10 +38,13 @@ export const useChatStore = create<ChatState>((set) => ({
     messages: [...state.messages, message],
   })),
   updateLastMessage: (content) => set((state) => {
+    console.log('updateLastMessage called with:', content, 'length:', content.length);
     const messages = [...state.messages];
     if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      console.log('Updating last message from:', lastMessage.content, 'to:', content);
       messages[messages.length - 1] = {
-        ...messages[messages.length - 1],
+        ...lastMessage,
         content,
       };
     }
