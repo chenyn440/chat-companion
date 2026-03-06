@@ -8,7 +8,7 @@ import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
 import {
   Send, StopCircle, Download, PenSquare,
-  ChevronLeft, ChevronRight, Star, MoreHorizontal
+  ChevronLeft, ChevronRight, MoreHorizontal
 } from 'lucide-react';
 
 export default function ChatV2Page() {
@@ -421,11 +421,6 @@ export default function ChatV2Page() {
                               favorited={msg.favorited}
                               onToggleFavorite={() => handleToggleFavorite(msg.id)}
                             />
-                            {msg.favorited && (
-                              <span className="ml-1 text-xs text-amber-500 flex items-center gap-0.5">
-                                <Star size={11} className="fill-amber-400" /> 已收藏
-                              </span>
-                            )}
                           </div>
                         )}
                       </div>
