@@ -121,11 +121,19 @@ export async function POST(req: NextRequest) {
           );
         } catch (error: any) {
           console.error('Stream error:', error);
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
-          );
+          try {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
+            );
+          } catch (e) {
+            console.error('Failed to send error message:', e);
+          }
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch (e) {
+            console.error('Failed to close controller:', e);
+          }
         }
       },
     });
