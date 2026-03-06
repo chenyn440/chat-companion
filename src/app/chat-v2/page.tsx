@@ -8,14 +8,16 @@ import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
 import FavoritesPanel from '@/components/Chat/FavoritesPanel';
 import ShareDialog from '@/components/Chat/ShareDialog';
+import FriendsDialog from '@/components/Chat/FriendsDialog';
 import {
-  Send, StopCircle, Download, PenSquare, Share2,
+  Send, StopCircle, Download, PenSquare, Share2, Users,
   ChevronLeft, ChevronRight, Star, MoreHorizontal,
   ChevronRight as ArrowRight, ChevronLeft as ArrowLeft,
+  X,
 } from 'lucide-react';
 
 export default function ChatV2Page() {
-  const { isLoggedIn, user, checkAuth } = useAuthStore();
+  const { isLoggedIn, user, checkAuth, logout } = useAuthStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const [sessions, setSessions] = useState<StoredSession[]>([]);
@@ -24,6 +26,8 @@ export default function ChatV2Page() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showFriends, setShowFriends] = useState(false);
 
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -38,6 +42,18 @@ export default function ChatV2Page() {
   const MAX_INPUT_LENGTH = 2000;
 
   useEffect(() => { checkAuth().then(() => setIsCheckingAuth(false)); }, []);
+
+  // 多标签页同步：监听其他标签页的退出事件
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key === 'auth_event' && e.newValue) {
+        const evt = JSON.parse(e.newValue);
+        if (evt.type === 'logout') window.location.href = '/login';
+      }
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
 
   useEffect(() => {
     if (isCheckingAuth) return;
@@ -364,6 +380,11 @@ export default function ChatV2Page() {
         />
       )}
 
+      {/* ===== 好友弹窗 ===== */}
+      {showFriends && user && (
+        <FriendsDialog userId={user.id} onClose={() => setShowFriends(false)} />
+      )}
+
       {/* ===== 左侧深色侧边栏 ===== */}
       <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300`}>
         {/* Logo + 折叠 */}
@@ -448,12 +469,52 @@ export default function ChatV2Page() {
           </div>
         )}
 
-        {/* 用户信息 */}
-        <div className={`border-t border-white/10 px-3 py-3 flex items-center gap-2 ${sidebarCollapsed ? 'justify-center' : ''}`}>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-orange-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">
-            {user?.nickname?.slice(0, 1)?.toUpperCase() || 'U'}
-          </div>
-          {!sidebarCollapsed && <span className="text-gray-300 text-sm truncate flex-1">{user?.nickname || '用户'}</span>}
+        {/* 用户信息 + 菜单 */}
+        <div className={`border-t border-white/10 px-3 py-3 relative ${sidebarCollapsed ? 'flex justify-center' : ''}`}>
+          <button
+            onClick={() => setShowUserMenu(v => !v)}
+            className={`flex items-center gap-2 w-full rounded-xl px-2 py-1.5 hover:bg-white/10 transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-orange-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">
+              {user?.nickname?.slice(0, 1)?.toUpperCase() || 'U'}
+            </div>
+            {!sidebarCollapsed && (
+              <>
+                <span className="text-gray-300 text-sm truncate flex-1 text-left">{user?.nickname || '用户'}</span>
+                <MoreHorizontal size={16} className="text-gray-500 flex-shrink-0" />
+              </>
+            )}
+          </button>
+
+          {/* 用户下拉菜单 */}
+          {showUserMenu && (
+            <div className="absolute bottom-14 left-2 right-2 bg-[#2C2C2E] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50">
+              <button
+                onClick={() => { setShowFriends(true); setShowUserMenu(false); }}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-white/10 transition-colors"
+              >
+                <Users size={15} />好友
+              </button>
+              <div className="border-t border-white/10" />
+              <button
+                onClick={() => { logout(false); setShowUserMenu(false); }}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-white/10 transition-colors"
+              >
+                <ArrowRight size={15} />切换账号
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm('确定退出登录？退出后将清除本地会话数据。')) {
+                    logout(true);
+                  }
+                  setShowUserMenu(false);
+                }}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-red-400 hover:bg-white/10 transition-colors"
+              >
+                <X size={15} />退出登录
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

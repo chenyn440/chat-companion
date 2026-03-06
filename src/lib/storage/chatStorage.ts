@@ -1,4 +1,4 @@
-// 本地存储服务 - 使用 localStorage 存储会话和消息
+// 本地存储服务 - 使用 localStorage 存储会话和消息（按 userId 分桶隔离）
 
 export interface StoredSession {
   id: string;
@@ -37,10 +37,37 @@ const MAX_SESSIONS = 50;
 const MAX_MESSAGES_PER_SESSION = 100;
 const MAX_VARIANTS_PER_MESSAGE = 5;
 
+// 按 userId 分桶的 key 前缀
+function prefix(key: string, userId?: string) {
+  return userId ? `app:v1:${userId}:${key}` : key;
+}
+
 class ChatStorage {
+  private userId?: string;
+
+  /** 初始化时绑定 userId，实现按账号隔离 */
+  init(userId: string) {
+    this.userId = userId;
+  }
+
+  /** 退出登录：清理当前账号的本地数据 */
+  clearUserData(userId: string) {
+    try {
+      const sessKey = prefix('sessions', userId);
+      const sessions: StoredSession[] = JSON.parse(localStorage.getItem(sessKey) || '[]');
+      for (const s of sessions) {
+        localStorage.removeItem(prefix(`messages_${s.id}`, userId));
+      }
+      localStorage.removeItem(sessKey);
+    } catch { /* ignore */ }
+  }
+
+  private get sk() { return prefix('sessions', this.userId); }
+  private mk(sessionId: string) { return prefix(`messages_${sessionId}`, this.userId); }
+
   getSessions(): StoredSession[] {
     try {
-      const data = localStorage.getItem(SESSIONS_KEY);
+      const data = localStorage.getItem(this.sk);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
@@ -60,7 +87,7 @@ class ChatStorage {
           if (removed) this.deleteSessionMessages(removed.id);
         }
       }
-      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+      localStorage.setItem(this.sk, JSON.stringify(sessions));
     } catch {
       alert('存储空间不足，请清理部分历史会话');
     }
@@ -69,7 +96,7 @@ class ChatStorage {
   deleteSession(sessionId: string): void {
     try {
       const sessions = this.getSessions().filter(s => s.id !== sessionId);
-      localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
+      localStorage.setItem(this.sk, JSON.stringify(sessions));
       this.deleteSessionMessages(sessionId);
     } catch (e) {
       console.error('Failed to delete session:', e);
@@ -78,7 +105,7 @@ class ChatStorage {
 
   getSessionMessages(sessionId: string): StoredMessage[] {
     try {
-      const data = localStorage.getItem(`${MESSAGES_KEY}_${sessionId}`);
+      const data = localStorage.getItem(this.mk(sessionId));
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
@@ -95,7 +122,7 @@ class ChatStorage {
         messages.push(message);
         if (messages.length > MAX_MESSAGES_PER_SESSION) messages.shift();
       }
-      localStorage.setItem(`${MESSAGES_KEY}_${message.sessionId}`, JSON.stringify(messages));
+      localStorage.setItem(this.mk(message.sessionId), JSON.stringify(messages));
     } catch (e) {
       console.error('Failed to save message:', e);
     }
@@ -103,14 +130,14 @@ class ChatStorage {
 
   saveMessages(sessionId: string, messages: StoredMessage[]): void {
     try {
-      localStorage.setItem(`${MESSAGES_KEY}_${sessionId}`, JSON.stringify(messages.slice(-MAX_MESSAGES_PER_SESSION)));
+      localStorage.setItem(this.mk(sessionId), JSON.stringify(messages.slice(-MAX_MESSAGES_PER_SESSION)));
     } catch (e) {
       console.error('Failed to save messages:', e);
     }
   }
 
   deleteSessionMessages(sessionId: string): void {
-    try { localStorage.removeItem(`${MESSAGES_KEY}_${sessionId}`); } catch { /* ignore */ }
+    try { localStorage.removeItem(this.mk(sessionId)); } catch { /* ignore */ }
   }
 
   toggleMessageFavorite(sessionId: string, messageId: string): void {
@@ -243,7 +270,7 @@ class ChatStorage {
   clearAll(): void {
     try {
       for (const s of this.getSessions()) this.deleteSessionMessages(s.id);
-      localStorage.removeItem(SESSIONS_KEY);
+      localStorage.removeItem(this.sk);
     } catch { /* ignore */ }
   }
 }

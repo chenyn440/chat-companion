@@ -46,7 +46,7 @@ export default function ChatHeader() {
                   <span>{user?.nickname}</span>
                 </Link>
                 <button
-                  onClick={logout}
+                  onClick={() => logout(true)}
                   className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                   title="退出登录"
                 >
