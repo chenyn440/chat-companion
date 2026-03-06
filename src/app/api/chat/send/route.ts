@@ -109,9 +109,24 @@ export async function POST(req: NextRequest) {
     if (!aiRes.ok) {
       const errText = await aiRes.text();
       console.error(`${modelConfig.provider} API error ${aiRes.status}:`, errText);
+
+      // Groq DeepSeek R1 特殊处理：400 可能是 system role 问题，详细透出
+      let userMsg = mapHttpError(aiRes.status, modelConfig.provider);
+      try {
+        const errJson = JSON.parse(errText);
+        const detail = errJson?.error?.message || errJson?.message;
+        if (detail) {
+          console.error('Detail:', detail);
+          // 如果是 system role 问题，给出具体提示
+          if (detail.includes('system') || detail.includes('role')) {
+            userMsg = '深度思考模式配置错误（模型不支持 system 角色），请联系管理员';
+          }
+        }
+      } catch { /* ignore */ }
+
       return new Response(JSON.stringify({
         success: false,
-        error: mapHttpError(aiRes.status, modelConfig.provider),
+        error: userMsg,
         errorCode: aiRes.status,
       }), { status: 502, headers: { 'Content-Type': 'application/json' } });
     }
