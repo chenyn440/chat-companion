@@ -13,6 +13,7 @@ const DmMessageSchema = new mongoose.Schema({
   conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'DmConversation', required: true },
   senderId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   content:        { type: String, required: true },
+  clientMsgId:    { type: String, default: null },  // 前端去重 ID
   createdAt:      { type: Number, default: () => Date.now() },
 });
 
