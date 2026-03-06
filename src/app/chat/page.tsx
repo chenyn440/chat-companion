@@ -39,7 +39,8 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showSessions, setShowSessions] = useState(false);
-  const [streamingContent, setStreamingContent] = useState(''); // 新增：流式内容状态
+  const [streamingContent, setStreamingContent] = useState(''); // 流式内容状态
+  const streamingContentRef = useRef(''); // 用 ref 存储最新值
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isLoggedIn, user, checkAuth } = useAuthStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -124,6 +125,7 @@ export default function ChatPage() {
     setInput('');
     setIsLoading(true);
     setStreamingContent(''); // 清空流式内容
+    streamingContentRef.current = ''; // 清空 ref
 
     const abortController = new AbortController();
 
@@ -166,27 +168,28 @@ export default function ChatPage() {
               console.log('Setting session ID:', data.sessionId);
               setSessionId(data.sessionId);
             } else if (data.type === 'content') {
-              // 直接更新流式内容状态，触发立即渲染
-              setStreamingContent((prev) => {
-                const newContent = prev + data.content;
-                console.log('Streaming content updated:', newContent);
-                return newContent;
-              });
+              // 更新 ref 和状态
+              streamingContentRef.current += data.content;
+              setStreamingContent(streamingContentRef.current);
+              console.log('Streaming content updated:', streamingContentRef.current);
             } else if (data.type === 'done') {
               console.log('Stream completed');
+              
               // 流式完成，将内容添加到消息列表
-              setStreamingContent((currentContent) => {
-                if (currentContent) {
-                  const assistantMessage: Message = {
-                    _id: Date.now().toString() + '_ai',
-                    role: 'assistant',
-                    content: currentContent,
-                    createdAt: new Date().toISOString(),
-                  };
-                  setMessages((prev) => [...prev, assistantMessage]);
-                }
-                return ''; // 清空流式内容
-              });
+              const finalContent = streamingContentRef.current;
+              if (finalContent) {
+                const assistantMessage: Message = {
+                  _id: Date.now().toString() + '_ai',
+                  role: 'assistant',
+                  content: finalContent,
+                  createdAt: new Date().toISOString(),
+                };
+                setMessages((prev) => [...prev, assistantMessage]);
+              }
+              
+              // 清空流式内容
+              setStreamingContent('');
+              streamingContentRef.current = '';
               
               // 刷新会话列表
               if (user?.id) {
@@ -196,6 +199,7 @@ export default function ChatPage() {
               console.error('Stream error:', data.error);
               alert('AI 服务出错：' + data.error);
               setStreamingContent('');
+              streamingContentRef.current = '';
             }
           } catch (e) {
             console.error('Parse error:', e, 'Raw data:', event.data);
@@ -205,6 +209,7 @@ export default function ChatPage() {
         onerror(err) {
           console.error('SSE error:', err);
           setStreamingContent('');
+          streamingContentRef.current = '';
           alert('网络错误，请检查连接后重试');
           throw err; // 停止重连
         },
@@ -216,6 +221,7 @@ export default function ChatPage() {
     } catch (error: any) {
       console.error('Send message error:', error);
       setStreamingContent('');
+      streamingContentRef.current = '';
     } finally {
       setIsLoading(false);
     }
