@@ -12,8 +12,9 @@ module.exports = {
       env: {
         NODE_ENV: "production", // 生产环境
         PORT: 3000, // 项目端口
-        MONGODB_URI: "mongodb://admin:Admin%402024@127.0.0.1:27017/chat-companion?authSource=admin", //"mongodb://admin:Admin@2024@127.0.0.1:27017/chat-companion?authSource=admin",
-        ZHIPU_API_KEY: "3706a148fc5547428f54bde48dcddc4a.mejmUYR37w93vill"
+        MONGODB_URI: "mongodb://admin:Admin%402024@127.0.0.1:27017/chat-companion?authSource=admin",
+        ZHIPU_API_KEY: "3706a148fc5547428f54bde48dcddc4a.mejmUYR37w93vill",
+        GROQ_API_KEY: "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"
       },
     },
   ],
