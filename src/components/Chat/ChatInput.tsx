@@ -16,10 +16,16 @@ export default function ChatInput() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleSend = async () => {
+    console.log('=== handleSend called ===');
+    console.log('Input:', input);
+    console.log('User:', user);
+    
     if (!input.trim()) return;
     
     const userMessage = input.trim();
     setInput('');
+    
+    console.log('Adding user message:', userMessage);
     
     // 添加用户消息到本地
     addMessage({
@@ -27,6 +33,8 @@ export default function ChatInput() {
       content: userMessage,
       timestamp: new Date().toISOString(),
     });
+    
+    console.log('Adding empty AI message placeholder');
     
     // 添加空的 AI 消息占位
     addMessage({
@@ -36,6 +44,7 @@ export default function ChatInput() {
     });
     
     setLoading(true);
+    console.log('Loading set to true');
     
     // 创建新的 AbortController
     abortControllerRef.current = new AbortController();
@@ -43,6 +52,7 @@ export default function ChatInput() {
     let accumulatedContent = '';
 
     try {
+      console.log('Starting fetch...');
       const response = await fetch('/api/chat/send', {
         method: 'POST',
         headers: {
@@ -72,6 +82,8 @@ export default function ChatInput() {
 
       const decoder = new TextDecoder();
       let buffer = '';
+
+      console.log('Starting to read stream...');
 
       while (true) {
         const { done, value } = await reader.read();
