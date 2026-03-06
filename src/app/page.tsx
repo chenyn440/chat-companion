@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useAuthStore } from '@/lib/store/authStore';
 import { ArrowRight, MessageCircle, Zap, Shield, Sparkles, Heart, Brain, Star } from 'lucide-react';
 
 const EXAMPLES = [
@@ -24,6 +26,12 @@ const FEATURES = [
 
 export default function LandingPage() {
   const router = useRouter();
+  const { user, isLoggedIn, checkAuth } = useAuthStore();
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    checkAuth().finally(() => setAuthChecked(true));
+  }, []);
 
   const handleExample = (prompt: string) => {
     router.push(`/chat-v2?prompt=${encodeURIComponent(prompt)}`);
@@ -41,15 +49,36 @@ export default function LandingPage() {
             AI 陪聊
           </Link>
           <div className="flex items-center gap-3">
-            <Link href="/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
-              登录
-            </Link>
-            <Link
-              href="/chat-v2"
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
-            >
-              开始对话 <ArrowRight size={14} />
-            </Link>
+            {authChecked && (
+              isLoggedIn && user ? (
+                <>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-pink-500 to-orange-400 flex items-center justify-center text-white text-xs font-bold">
+                      {user.nickname.slice(0, 1).toUpperCase()}
+                    </div>
+                    <span className="hidden sm:inline">{user.nickname}</span>
+                  </div>
+                  <Link
+                    href="/chat-v2"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+                  >
+                    进入对话 <ArrowRight size={14} />
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
+                    登录
+                  </Link>
+                  <Link
+                    href="/chat-v2"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+                  >
+                    开始对话 <ArrowRight size={14} />
+                  </Link>
+                </>
+              )
+            )}
           </div>
         </div>
       </header>
