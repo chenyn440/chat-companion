@@ -167,18 +167,23 @@ export default function ChatPage() {
         },
 
         onmessage(event) {
+          console.log('SSE message received:', event.data);
           try {
             const data = JSON.parse(event.data);
 
             if (data.type === 'session') {
+              console.log('Setting session ID:', data.sessionId);
               setSessionId(data.sessionId);
             } else if (data.type === 'content') {
               accumulatedContent += data.content;
+              console.log('Accumulated content:', accumulatedContent);
+              
               // 更新最后一条消息的内容
               setMessages((prev) => {
                 const newMessages = [...prev];
                 const lastIndex = newMessages.length - 1;
                 if (lastIndex >= 0 && newMessages[lastIndex].role === 'assistant') {
+                  console.log('Updating message at index:', lastIndex, 'with content:', accumulatedContent);
                   newMessages[lastIndex] = {
                     ...newMessages[lastIndex],
                     content: accumulatedContent,
@@ -187,7 +192,7 @@ export default function ChatPage() {
                 return newMessages;
               });
             } else if (data.type === 'done') {
-              console.log('Stream completed');
+              console.log('Stream completed, final content:', accumulatedContent);
               // 刷新会话列表
               if (user?.id) {
                 loadSessions();
