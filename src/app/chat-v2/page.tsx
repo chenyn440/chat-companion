@@ -601,7 +601,7 @@ function ChatV2Inner() {
                       </div>
                     ) : (
                       <div>
-                        {isEmpty ? (
+                        {(isEmpty || isStreaming && !activeVariant?.content) ? (
                           <div className="flex items-center gap-1.5 py-2">
                             <div className="flex gap-1">
                               <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -609,6 +609,12 @@ function ChatV2Inner() {
                               <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                             </div>
                             <span className="text-xs text-gray-400 ml-1">正在思考...</span>
+                          </div>
+                        ) : isStreaming ? (
+                          // 重新生成中：显示当前已流式输出的内容 + 光标
+                          <div className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+                            {activeVariant?.content || msg.content}
+                            <span className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 align-middle animate-pulse" />
                           </div>
                         ) : (
                           <div className="text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
