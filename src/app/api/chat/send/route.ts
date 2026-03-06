@@ -37,8 +37,9 @@ export async function POST(req: NextRequest) {
     }
 
     // 获取或创建会话
+    // 注意：前端本地 sessionId 格式为 "session_xxx"，不是合法 MongoDB ObjectId，需过滤
     let session: any;
-    if (sessionId) {
+    if (sessionId && /^[0-9a-fA-F]{24}$/.test(sessionId)) {
       session = await Session.findById(sessionId);
     }
     if (!session) {
