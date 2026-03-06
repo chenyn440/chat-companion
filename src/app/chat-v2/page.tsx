@@ -2,32 +2,28 @@
 
 import './styles.css';
 import { useState, useEffect, useRef } from 'react';
-import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuthStore } from '@/lib/store/authStore';
 import { chatStorage, StoredSession, StoredMessage } from '@/lib/storage/chatStorage';
 import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
-import { Send, StopCircle, Download, Menu, X } from 'lucide-react';
+import { Send, StopCircle, Download, Menu, X, Star } from 'lucide-react';
 
 export default function ChatV2Page() {
   const { isLoggedIn, user, checkAuth } = useAuthStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  
-  // 会话相关
+
   const [sessions, setSessions] = useState<StoredSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [showSessionManager, setShowSessionManager] = useState(true);
-  
-  // 输入相关
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   const MAX_INPUT_LENGTH = 2000;
 
-  // 初始化
   useEffect(() => {
     checkAuth().then(() => setIsCheckingAuth(false));
   }, []);
@@ -41,29 +37,14 @@ export default function ChatV2Page() {
     loadSessions();
   }, [isLoggedIn, isCheckingAuth]);
 
-  // 加载会话列表
-  const loadSessions = () => {
-    const storedSessions = chatStorage.getSessions();
-    setSessions(storedSessions);
-    
-    // 如果没有当前会话，创建一个新的
-    if (!currentSessionId && storedSessions.length === 0) {
-      createNewSession();
-    } else if (!currentSessionId && storedSessions.length > 0) {
-      setCurrentSessionId(storedSessions[0].id);
-    }
-  };
-
-  // 加载会话消息
   useEffect(() => {
     if (currentSessionId) {
-      const storedMessages = chatStorage.getSessionMessages(currentSessionId);
-      setMessages(storedMessages);
+      const stored = chatStorage.getSessionMessages(currentSessionId);
+      setMessages(stored);
       setTimeout(() => scrollToBottom(), 100);
     }
   }, [currentSessionId]);
 
-  // 自动滚动
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -72,67 +53,69 @@ export default function ChatV2Page() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  // 创建新会话
-  const createNewSession = () => {
-    const newSession: StoredSession = {
+  const loadSessions = () => {
+    const stored = chatStorage.getSessions();
+    setSessions(stored);
+    if (!currentSessionId) {
+      if (stored.length === 0) {
+        doCreateSession();
+      } else {
+        setCurrentSessionId(stored[0].id);
+      }
+    }
+  };
+
+  const doCreateSession = () => {
+    const s: StoredSession = {
       id: `session_${Date.now()}`,
       title: '新对话',
       pinned: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    chatStorage.saveSession(newSession);
-    setCurrentSessionId(newSession.id);
+    chatStorage.saveSession(s);
+    setCurrentSessionId(s.id);
     setMessages([]);
-    loadSessions();
+    const updated = chatStorage.getSessions();
+    setSessions(updated);
+    return s.id;
   };
 
-  // 切换会话
   const handleSessionSelect = (sessionId: string) => {
-    // 如果正在生成，先停止
-    if (isLoading) {
-      stopGeneration();
-    }
+    if (isLoading) stopGeneration();
     setCurrentSessionId(sessionId);
   };
 
-  // 删除会话
   const handleDeleteSession = (sessionId: string) => {
     chatStorage.deleteSession(sessionId);
     if (currentSessionId === sessionId) {
       const remaining = chatStorage.getSessions();
-      setCurrentSessionId(remaining[0]?.id || null);
-      if (remaining.length === 0) {
-        createNewSession();
-      }
+      if (remaining.length === 0) doCreateSession();
+      else setCurrentSessionId(remaining[0].id);
     }
-    loadSessions();
+    setSessions(chatStorage.getSessions());
   };
 
-  // 重命名会话
   const handleRenameSession = (sessionId: string, newTitle: string) => {
-    const sessions = chatStorage.getSessions();
-    const session = sessions.find(s => s.id === sessionId);
-    if (session) {
-      session.title = newTitle;
-      session.updatedAt = Date.now();
-      chatStorage.saveSession(session);
-      loadSessions();
+    const list = chatStorage.getSessions();
+    const s = list.find(x => x.id === sessionId);
+    if (s) {
+      s.title = newTitle;
+      s.updatedAt = Date.now();
+      chatStorage.saveSession(s);
+      setSessions(chatStorage.getSessions());
     }
   };
 
-  // 置顶会话
   const handleTogglePin = (sessionId: string) => {
     chatStorage.toggleSessionPin(sessionId);
-    loadSessions();
+    setSessions(chatStorage.getSessions());
   };
 
-  // 导出会话
   const handleExport = (sessionId: string, format: 'txt' | 'md') => {
     const content = format === 'txt'
       ? chatStorage.exportSessionAsText(sessionId)
       : chatStorage.exportSessionAsMarkdown(sessionId);
-    
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -142,144 +125,147 @@ export default function ChatV2Page() {
     URL.revokeObjectURL(url);
   };
 
-  // 切换消息收藏
   const handleToggleFavorite = (messageId: string) => {
     if (!currentSessionId) return;
     chatStorage.toggleMessageFavorite(currentSessionId, messageId);
-    const updatedMessages = chatStorage.getSessionMessages(currentSessionId);
-    setMessages(updatedMessages);
+    setMessages(chatStorage.getSessionMessages(currentSessionId));
   };
 
-  // 发送消息
+  // ---- 核心发送逻辑：原生 fetch + 手动解析 SSE ----
   const sendMessage = async () => {
     if (!input.trim() || isLoading || !currentSessionId) return;
-
     if (input.length > MAX_INPUT_LENGTH) {
-      alert(`输入内容过长，最多支持 ${MAX_INPUT_LENGTH} 个字符`);
+      alert(`输入内容超过 ${MAX_INPUT_LENGTH} 字符限制`);
       return;
     }
 
     const messageContent = input.trim();
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const sessId = currentSessionId; // 捕获闭包值
 
-    // 添加用户消息
-    const userMessage: StoredMessage = {
+    // 保存用户消息
+    const userMsg: StoredMessage = {
       id: `msg_${Date.now()}`,
-      sessionId: currentSessionId,
+      sessionId: sessId,
       role: 'user',
       content: messageContent,
       createdAt: Date.now(),
       favorited: false,
       requestId,
     };
-
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
-    chatStorage.saveMessage(userMessage);
+    chatStorage.saveMessage(userMsg);
+    const withUser = [...messages, userMsg];
+    setMessages(withUser);
     setInput('');
     setIsLoading(true);
 
-    // 添加空的 AI 消息占位
-    const aiMessageId = `msg_${Date.now()}_ai`;
-    const aiMessage: StoredMessage = {
-      id: aiMessageId,
-      sessionId: currentSessionId,
+    // AI 占位消息
+    const aiMsgId = `msg_${Date.now() + 1}_ai`;
+    const aiPlaceholder: StoredMessage = {
+      id: aiMsgId,
+      sessionId: sessId,
       role: 'assistant',
       content: '',
-      createdAt: Date.now(),
+      createdAt: Date.now() + 1,
       favorited: false,
       requestId,
     };
-    setMessages([...newMessages, aiMessage]);
+    setMessages([...withUser, aiPlaceholder]);
 
-    let accumulatedContent = '';
-    abortControllerRef.current = new AbortController();
+    let accumulated = '';
+    const ctrl = new AbortController();
+    abortControllerRef.current = ctrl;
 
     try {
-      await fetchEventSource('/api/chat/send', {
+      const res = await fetch('/api/chat/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: messageContent,
-          sessionId: currentSessionId,
+          sessionId: sessId,
           character: 'gentle',
           mode: 'companion',
           userId: user?.id,
           requestId,
         }),
-        signal: abortControllerRef.current.signal,
+        signal: ctrl.signal,
+      });
 
-        async onopen(response) {
-          if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
-            return;
-          } else if (response.status >= 400) {
-            throw new Error(`HTTP ${response.status}`);
-          }
-        },
+      if (!res.ok) {
+        throw new Error(`请求失败: HTTP ${res.status}`);
+      }
+      if (!res.body) {
+        throw new Error('响应体为空');
+      }
 
-        onmessage(event) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data:')) continue;
+
+          const raw = t.slice(5).trim();
+          if (!raw || raw === '[DONE]') continue;
+
           try {
-            const data = JSON.parse(event.data);
+            const ev = JSON.parse(raw);
 
-            if (data.type === 'session') {
-              // 处理 session 事件，但不需要特殊操作
-              console.log('Session established:', data.sessionId);
-            } else if (data.type === 'content') {
-              accumulatedContent += data.content;
-              setMessages((prev) => {
-                const updated = [...prev];
-                const lastIndex = updated.length - 1;
-                if (lastIndex >= 0 && updated[lastIndex].id === aiMessageId) {
-                  updated[lastIndex] = {
-                    ...updated[lastIndex],
-                    content: accumulatedContent,
-                  };
-                }
-                return updated;
-              });
-            } else if (data.type === 'done') {
-              // 保存完整的 AI 消息
-              const finalMessage: StoredMessage = {
-                id: aiMessageId,
-                sessionId: currentSessionId,
+            if (ev.type === 'content' && typeof ev.content === 'string') {
+              accumulated += ev.content;
+              const snap = accumulated;
+              setMessages(prev =>
+                prev.map(m => m.id === aiMsgId ? { ...m, content: snap } : m)
+              );
+            } else if (ev.type === 'done') {
+              // 持久化完整 AI 消息
+              const finalMsg: StoredMessage = {
+                id: aiMsgId,
+                sessionId: sessId,
                 role: 'assistant',
-                content: accumulatedContent,
+                content: accumulated,
                 createdAt: Date.now(),
                 favorited: false,
                 requestId,
               };
-              chatStorage.saveMessage(finalMessage);
+              chatStorage.saveMessage(finalMsg);
 
-              // 更新会话标题（如果是第一条消息）
-              const session = chatStorage.getSessions().find(s => s.id === currentSessionId);
-              if (session && session.title === '新对话') {
-                session.title = messageContent.substring(0, 20) + (messageContent.length > 20 ? '...' : '');
-                session.updatedAt = Date.now();
-                chatStorage.saveSession(session);
-                loadSessions();
+              // 自动命名会话
+              const list = chatStorage.getSessions();
+              const cur = list.find(x => x.id === sessId);
+              if (cur && cur.title === '新对话') {
+                cur.title = messageContent.slice(0, 20) + (messageContent.length > 20 ? '...' : '');
+                cur.updatedAt = Date.now();
+                chatStorage.saveSession(cur);
+                setSessions(chatStorage.getSessions());
               }
-            } else if (data.type === 'error') {
-              console.error('Stream error:', data.error);
-              alert('AI 服务出错：' + data.error);
+            } else if (ev.type === 'error') {
+              console.error('Server stream error:', ev.error);
             }
-          } catch (e) {
-            console.error('Parse error:', e, 'Raw data:', event.data);
+          } catch {
+            // 单条解析失败，跳过
           }
-        },
-
-        onerror(err) {
-          console.error('SSE error:', err);
-          if (!accumulatedContent) {
-            alert('连接中断，请检查网络');
-            setMessages((prev) => prev.filter(m => m.id !== aiMessageId));
-          }
-          throw err;
-        },
-      });
-    } catch (error: any) {
-      console.error('Send error:', error);
-      if (!accumulatedContent) {
-        setMessages((prev) => prev.filter(m => m.id !== aiMessageId));
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        // 用户手动停止，正常
+      } else {
+        console.error('sendMessage error:', err);
+        if (!accumulated) {
+          // 没有任何回复时清理占位
+          setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+        }
       }
     } finally {
       setIsLoading(false);
@@ -287,12 +273,9 @@ export default function ChatV2Page() {
     }
   };
 
-  // 停止生成
   const stopGeneration = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
     setIsLoading(false);
   };
 
@@ -305,10 +288,10 @@ export default function ChatV2Page() {
 
   if (isCheckingAuth) {
     return (
-      <div className="flex h-screen items-center justify-center">
+      <div className="flex h-screen items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">加载中...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
+          <p className="mt-4 text-gray-500">加载中...</p>
         </div>
       </div>
     );
@@ -317,14 +300,16 @@ export default function ChatV2Page() {
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
   return (
-    <div className="flex h-screen chat-v2-container">
-      {/* 会话管理侧边栏 */}
-      <div className={`${showSessionManager ? 'chat-v2-sidebar' : 'w-0'} transition-all duration-300 overflow-hidden`}>
+    <div className="flex h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* 侧边栏 */}
+      <div
+        className={`${showSessionManager ? 'w-72' : 'w-0'} flex-shrink-0 transition-all duration-300 overflow-hidden bg-white shadow-md`}
+      >
         <SessionManager
           sessions={sessions}
           currentSessionId={currentSessionId}
           onSessionSelect={handleSessionSelect}
-          onNewSession={createNewSession}
+          onNewSession={doCreateSession}
           onDeleteSession={handleDeleteSession}
           onRenameSession={handleRenameSession}
           onTogglePin={handleTogglePin}
@@ -332,73 +317,95 @@ export default function ChatV2Page() {
         />
       </div>
 
-      {/* 主聊天区域 */}
-      <div className="flex-1 flex flex-col">
-        {/* 头部 */}
-        <div className="bg-white border-b px-4 py-3 flex items-center justify-between">
+      {/* 主区域 */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* 顶栏 */}
+        <div className="flex items-center justify-between px-5 py-3 bg-white shadow-sm z-10">
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowSessionManager(!showSessionManager)}
-              className="p-2 hover:bg-gray-100 rounded-lg"
+              onClick={() => setShowSessionManager(v => !v)}
+              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
             >
               {showSessionManager ? <X size={20} /> : <Menu size={20} />}
             </button>
-            <h2 className="font-medium text-gray-800">{currentSession?.title || '新对话'}</h2>
+            <div>
+              <h1 className="font-semibold text-gray-800 text-base leading-tight">
+                {currentSession?.title || '新对话'}
+              </h1>
+              <p className="text-xs text-gray-400">AI 助手</p>
+            </div>
           </div>
           <button
             onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-            title="导出为 Markdown"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            title="导出 Markdown"
           >
-            <Download size={20} />
+            <Download size={16} />
+            导出
           </button>
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           {messages.length === 0 && (
-            <div className="text-center py-12 text-gray-400">
-              <p>开始新的对话吧</p>
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-gray-400 select-none">
+              <span className="text-5xl">💬</span>
+              <p className="text-base font-medium">开始新对话吧</p>
+              <p className="text-sm">AI 助手随时为你服务</p>
             </div>
           )}
 
-          {messages.map((message) => {
-            if (message.role === 'assistant' && !message.content) {
-              return (
-                <div key={message.id} className="flex justify-start">
-                  <div className="bg-white border px-4 py-3 rounded-2xl rounded-bl-md">
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
+          {messages.map(msg => {
+            const isUser = msg.role === 'user';
+            const isEmpty = !msg.content && !isUser;
 
             return (
-              <div
-                key={message.id}
-                className={`group flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className="relative max-w-[70%]">
-                  <div
-                    className={`px-4 py-3 rounded-2xl ${
-                      message.role === 'user'
-                        ? 'bg-blue-600 text-white rounded-br-md'
-                        : 'bg-white border text-gray-800 rounded-bl-md'
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+              <div key={msg.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                <div className={`group relative max-w-[75%] ${isUser ? '' : 'flex gap-2'}`}>
+                  {/* AI 头像 */}
+                  {!isUser && (
+                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-sm mt-1">
+                      AI
+                    </div>
+                  )}
+
+                  <div>
+                    {/* 气泡 */}
+                    <div
+                      className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                        isUser
+                          ? 'bg-blue-600 text-white rounded-br-sm shadow-sm'
+                          : 'bg-white text-gray-800 border border-gray-100 rounded-bl-sm shadow-sm'
+                      }`}
+                    >
+                      {isEmpty ? (
+                        <div className="flex gap-1 py-0.5">
+                          <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                          <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                          <span className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      )}
+                    </div>
+
+                    {/* 收藏标记 */}
+                    {msg.favorited && !isUser && (
+                      <div className="flex items-center gap-1 mt-1 ml-1 text-xs text-amber-500">
+                        <Star size={11} className="fill-amber-400" />
+                        已收藏
+                      </div>
+                    )}
                   </div>
-                  {message.role === 'assistant' && (
-                    <div className="absolute -top-2 -right-2">
+
+                  {/* 操作按钮（AI 消息悬停显示） */}
+                  {!isUser && msg.content && (
+                    <div className="absolute -top-2 right-0 opacity-0 group-hover:opacity-100 transition-opacity">
                       <MessageActions
-                        messageId={message.id}
-                        content={message.content}
-                        favorited={message.favorited}
-                        onToggleFavorite={() => handleToggleFavorite(message.id)}
+                        messageId={msg.id}
+                        content={msg.content}
+                        favorited={msg.favorited}
+                        onToggleFavorite={() => handleToggleFavorite(msg.id)}
                       />
                     </div>
                   )}
@@ -410,43 +417,42 @@ export default function ChatV2Page() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 输入区域 */}
-        <div className="bg-white border-t p-4">
-          <div className="flex gap-2">
+        {/* 输入栏 */}
+        <div className="bg-white border-t px-5 py-4 shadow-[0_-2px_12px_rgba(0,0,0,0.04)]">
+          <div className="flex gap-3 items-end">
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入消息..."
+              placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
               disabled={isLoading}
               rows={1}
-              className="flex-1 px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none disabled:bg-gray-100"
-              style={{ minHeight: '48px', maxHeight: '120px' }}
+              className="flex-1 resize-none rounded-xl border-2 border-gray-200 px-4 py-3 text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:bg-gray-50 disabled:text-gray-400"
+              style={{ minHeight: '48px', maxHeight: '140px' }}
             />
             {isLoading ? (
               <button
                 onClick={stopGeneration}
-                className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-2"
+                className="flex-shrink-0 flex items-center gap-2 px-5 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm"
               >
-                <StopCircle size={20} />
+                <StopCircle size={18} />
                 停止
               </button>
             ) : (
               <button
                 onClick={sendMessage}
                 disabled={!input.trim()}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="flex-shrink-0 flex items-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-xl text-sm font-medium transition-colors shadow-sm disabled:cursor-not-allowed"
               >
-                <Send size={20} />
+                <Send size={18} />
                 发送
               </button>
             )}
           </div>
-          <div className="flex justify-between items-center mt-2">
-            <p className="text-xs text-gray-400">按 Enter 发送，Shift + Enter 换行</p>
-            <p className={`text-xs ${input.length > MAX_INPUT_LENGTH ? 'text-red-500' : 'text-gray-400'}`}>
+          <div className="flex justify-end mt-2">
+            <span className={`text-xs ${input.length > MAX_INPUT_LENGTH ? 'text-red-500' : 'text-gray-400'}`}>
               {input.length} / {MAX_INPUT_LENGTH}
-            </p>
+            </span>
           </div>
         </div>
       </div>
