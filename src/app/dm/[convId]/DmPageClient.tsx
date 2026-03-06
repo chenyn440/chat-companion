@@ -3,25 +3,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/store/authStore';
-import { Send, ArrowLeft, Loader2, WifiOff, Wifi } from 'lucide-react';
-
-type MsgStatus = 'sending' | 'sent' | 'failed';
+import { Send, ArrowLeft, Loader2, WifiOff, RefreshCw } from 'lucide-react';
 
 interface DmMessage {
-  serverMsgId?: string;
-  clientMsgId?: string;
-  fromUserId: string;
+  id: string;
+  senderId: string;
   senderNickname: string;
   content: string;
   createdAt: number;
   isSelf: boolean;
-  status: MsgStatus;
-}
-
-type WsStatus = 'connecting' | 'open' | 'reconnecting' | 'error';
-
-function genClientMsgId() {
-  return `cm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  status?: 'sending' | 'sent' | 'failed';
 }
 
 export default function DmPageClient({ convId }: { convId: string }) {
@@ -31,117 +22,61 @@ export default function DmPageClient({ convId }: { convId: string }) {
   const [friendNickname, setFriendNickname] = useState('私信');
   const [messages, setMessages] = useState<DmMessage[]>([]);
   const [input, setInput] = useState('');
-  const [wsStatus, setWsStatus] = useState<WsStatus>('connecting');
-  const wsRef = useRef<WebSocket | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pollError, setPollError] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reconnectCount = useRef(0);
-  const joinedRef = useRef(false);
+  const lastTsRef = useRef(0);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     checkAuth().then(() => setAuthReady(true));
   }, []);
 
-  const wsConnect = useCallback((userId: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://${window.location.host}/ws/dm?userId=${userId}`);
-    wsRef.current = ws;
-    joinedRef.current = false;
-    setWsStatus('connecting');
-
-    ws.onopen = () => {
-      reconnectCount.current = 0;
-      // 发送 dm:join
-      ws.send(JSON.stringify({ type: 'dm:join', conversationId: convId }));
-    };
-
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-
-      if (data.type === 'dm:joined') {
-        joinedRef.current = true;
-        setWsStatus('open');
-      }
-
-      else if (data.type === 'dm:history') {
-        const msgs: DmMessage[] = data.messages.map((m: any) => ({
-          serverMsgId: m.serverMsgId,
-          clientMsgId: m.clientMsgId,
-          fromUserId: m.fromUserId,
-          senderNickname: m.senderNickname,
-          content: m.content,
-          createdAt: m.createdAt,
-          isSelf: m.fromUserId === userId,
-          status: 'sent' as MsgStatus,
+  // 拉取消息
+  const fetchMessages = useCallback(async (userId: string, since = 0) => {
+    try {
+      const url = `/api/dm/conversations/${convId}/messages${since ? `?after=${since}` : ''}`;
+      const r = await fetch(url, { headers: { 'x-user-id': userId } });
+      const d = await r.json();
+      if (d.success) {
+        setPollError(false);
+        const newMsgs: DmMessage[] = d.data.map((m: any) => ({
+          ...m,
+          isSelf: m.senderId === userId,
+          status: 'sent' as const,
         }));
-        setMessages(msgs);
-        const other = msgs.find(m => !m.isSelf);
-        if (other) setFriendNickname(other.senderNickname);
-      }
-
-      else if (data.type === 'dm:send_ack') {
-        const { clientMsgId, serverMsgId, createdAt } = data;
-        setMessages(prev => prev.map(m =>
-          m.clientMsgId === clientMsgId
-            ? { ...m, serverMsgId, createdAt, status: 'sent' }
-            : m
-        ));
-      }
-
-      else if (data.type === 'dm:message_new') {
-        const msg = data;
-        setMessages(prev => {
-          if (prev.some(m => m.serverMsgId === msg.serverMsgId)) return prev;
-          return [...prev, {
-            serverMsgId: msg.serverMsgId,
-            fromUserId: msg.fromUserId,
-            senderNickname: msg.senderNickname,
-            content: msg.content,
-            createdAt: msg.createdAt,
-            isSelf: false,
-            status: 'sent',
-          }];
-        });
-        setFriendNickname(msg.senderNickname);
-      }
-
-      else if (data.type === 'dm:error') {
-        console.error('[ws] server error', data);
-        if (data.code === 4001) {
-          // 未鉴权，跳登录
-          router.replace('/login');
+        if (newMsgs.length > 0) {
+          setMessages(prev => {
+            const ids = new Set(prev.map(m => m.id));
+            const fresh = newMsgs.filter(m => !ids.has(m.id));
+            // 推断对方昵称
+            const other = fresh.find(m => !m.isSelf);
+            if (other) setFriendNickname(other.senderNickname);
+            return [...prev, ...fresh];
+          });
+          lastTsRef.current = newMsgs[newMsgs.length - 1].createdAt;
         }
-      }
-    };
-
-    ws.onclose = () => {
-      wsRef.current = null;
-      joinedRef.current = false;
-      if (reconnectCount.current < 6) {
-        setWsStatus('reconnecting');
-        const delay = Math.min(1000 * 2 ** reconnectCount.current, 20000);
-        reconnectCount.current++;
-        reconnectTimerRef.current = setTimeout(() => wsConnect(userId), delay);
       } else {
-        setWsStatus('error');
+        setPollError(true);
       }
-    };
+    } catch {
+      setPollError(true);
+    }
+  }, [convId]);
 
-    ws.onerror = () => { /* onclose will handle */ };
-  }, [convId, router]);
-
+  // 初始化 + 开始轮询
   useEffect(() => {
     if (!authReady || !user) return;
-    wsConnect(user.id);
-    return () => {
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      wsRef.current?.close();
-    };
-  }, [authReady, user, wsConnect]);
+    fetchMessages(user.id, 0).finally(() => setLoading(false));
+    pollTimerRef.current = setInterval(() => {
+      fetchMessages(user.id, lastTsRef.current);
+    }, 3000);
+    return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
+  }, [authReady, user, fetchMessages]);
 
-  // 滚底
+  // 自动滚底
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -154,53 +89,73 @@ export default function DmPageClient({ convId }: { convId: string }) {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const content = input.trim();
-    if (!content || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !joinedRef.current) return;
+    if (!content || !user || sendingRef.current) return;
+    sendingRef.current = true;
 
-    const clientMsgId = genClientMsgId();
+    // 乐观更新
+    const tempId = `temp_${Date.now()}`;
     const optimistic: DmMessage = {
-      clientMsgId,
-      fromUserId: user!.id,
-      senderNickname: user!.nickname,
+      id: tempId,
+      senderId: user.id,
+      senderNickname: user.nickname,
       content,
       createdAt: Date.now(),
       isSelf: true,
       status: 'sending',
     };
-
     setMessages(prev => [...prev, optimistic]);
     setInput('');
 
-    wsRef.current.send(JSON.stringify({
-      type: 'dm:send',
-      conversationId: convId,
-      clientMsgId,
-      content,
-    }));
-
-    // 5秒内未收到 ack 标为失败
-    setTimeout(() => {
+    try {
+      const r = await fetch(`/api/dm/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        // 用真实消息替换乐观消息
+        setMessages(prev => prev.map(m =>
+          m.id === tempId ? { ...d.data, isSelf: true, status: 'sent' as const } : m
+        ));
+        lastTsRef.current = d.data.createdAt;
+      } else {
+        setMessages(prev => prev.map(m =>
+          m.id === tempId ? { ...m, status: 'failed' as const } : m
+        ));
+      }
+    } catch {
       setMessages(prev => prev.map(m =>
-        m.clientMsgId === clientMsgId && m.status === 'sending'
-          ? { ...m, status: 'failed' }
-          : m
+        m.id === tempId ? { ...m, status: 'failed' as const } : m
       ));
-    }, 5000);
+    } finally {
+      sendingRef.current = false;
+    }
   };
 
-  // 重发失败消息
-  const handleRetry = (msg: DmMessage) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    setMessages(prev => prev.map(m =>
-      m.clientMsgId === msg.clientMsgId ? { ...m, status: 'sending' } : m
-    ));
-    wsRef.current.send(JSON.stringify({
-      type: 'dm:send',
-      conversationId: convId,
-      clientMsgId: msg.clientMsgId,
-      content: msg.content,
-    }));
+  const handleRetry = async (msg: DmMessage) => {
+    if (!user) return;
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sending' } : m));
+    try {
+      const r = await fetch(`/api/dm/conversations/${convId}/messages`, {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: msg.content }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setMessages(prev => prev.map(m =>
+          m.id === msg.id ? { ...d.data, isSelf: true, status: 'sent' as const } : m
+        ));
+        lastTsRef.current = d.data.createdAt;
+      } else {
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'failed' } : m));
+      }
+    } catch {
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'failed' } : m));
+    }
   };
 
   if (!authReady) {
@@ -225,30 +180,30 @@ export default function DmPageClient({ convId }: { convId: string }) {
         </button>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-gray-900 truncate">{friendNickname}</h1>
-          <p className="text-xs flex items-center gap-1 mt-0.5">
-            {wsStatus === 'open'         && <><Wifi size={11} className="text-green-500" /><span className="text-green-500">已连接</span></>}
-            {wsStatus === 'connecting'   && <><Loader2 size={11} className="animate-spin text-gray-400" /><span className="text-gray-400">连接中…</span></>}
-            {wsStatus === 'reconnecting' && <><WifiOff size={11} className="text-amber-500" /><span className="text-amber-500">重连中…</span></>}
-            {wsStatus === 'error'        && (
-              <>
-                <WifiOff size={11} className="text-red-500" /><span className="text-red-500">连接失败</span>
-                <button onClick={() => { reconnectCount.current = 0; wsConnect(user!.id); }}
-                  className="ml-1 text-blue-500 text-xs underline">重试</button>
-              </>
-            )}
+          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+            {pollError
+              ? <><WifiOff size={10} className="text-amber-500" /><span className="text-amber-500">消息同步中断</span>
+                  <button onClick={() => user && fetchMessages(user.id, lastTsRef.current)}
+                    className="ml-1 text-blue-500 underline flex items-center gap-0.5"><RefreshCw size={10} />重试</button></>
+              : <><span className="w-1.5 h-1.5 bg-green-400 rounded-full inline-block" /><span className="text-green-500">已连接（3秒轮询）</span></>
+            }
           </p>
         </div>
       </header>
 
       {/* 消息列表 */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-gray-50">
-        {messages.length === 0 && wsStatus === 'open' && (
+        {loading && (
+          <div className="flex justify-center py-16">
+            <Loader2 size={22} className="animate-spin text-gray-300" />
+          </div>
+        )}
+        {!loading && messages.length === 0 && (
           <p className="text-center text-gray-400 text-sm py-16">还没有消息，发一条打招呼吧 👋</p>
         )}
 
         {messages.map((msg, i) => (
-          <div key={msg.serverMsgId || msg.clientMsgId || i}
-            className={`flex gap-2.5 ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
+          <div key={msg.id || i} className={`flex gap-2.5 ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
             {!msg.isSelf && (
               <div className="flex-shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-white text-sm font-bold self-start">
                 {msg.senderNickname.slice(0, 1)}
@@ -265,13 +220,11 @@ export default function DmPageClient({ convId }: { convId: string }) {
               }`}>
                 <p className="whitespace-pre-wrap">{msg.content}</p>
               </div>
-              <div className={`flex items-center gap-1.5 mt-1 ${msg.isSelf ? 'justify-end' : 'justify-start ml-1'}`}>
+              <div className={`flex items-center gap-1.5 mt-1 ${msg.isSelf ? 'justify-end' : 'ml-1'}`}>
                 <span className="text-xs text-gray-400">
                   {new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                 </span>
-                {msg.isSelf && msg.status === 'sending' && (
-                  <Loader2 size={10} className="animate-spin text-gray-400" />
-                )}
+                {msg.isSelf && msg.status === 'sending' && <Loader2 size={10} className="animate-spin text-gray-400" />}
                 {msg.isSelf && msg.status === 'failed' && (
                   <button onClick={() => handleRetry(msg)} className="text-xs text-red-500 underline">重发</button>
                 )}
@@ -295,15 +248,14 @@ export default function DmPageClient({ convId }: { convId: string }) {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder={wsStatus === 'open' ? `给 ${friendNickname} 发消息…` : '连接中，请稍候…'}
+            placeholder={`给 ${friendNickname} 发消息…`}
             rows={1}
-            disabled={wsStatus !== 'open'}
-            className="flex-1 resize-none outline-none text-sm text-gray-800 placeholder-gray-400 bg-gray-50 rounded-2xl px-4 py-3 border border-gray-200 focus:border-blue-400 focus:bg-white transition-colors disabled:opacity-50 overflow-hidden"
+            className="flex-1 resize-none outline-none text-sm text-gray-800 placeholder-gray-400 bg-gray-50 rounded-2xl px-4 py-3 border border-gray-200 focus:border-blue-400 focus:bg-white transition-colors overflow-hidden"
             style={{ minHeight: '44px' }}
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || wsStatus !== 'open'}
+            disabled={!input.trim()}
             className="flex-shrink-0 w-11 h-11 flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 text-white rounded-2xl transition-colors"
           >
             <Send size={16} />
