@@ -43,7 +43,7 @@ export default function ChatInput() {
     let accumulatedContent = '';
 
     try {
-      await fetchEventSource('/api/chat/send', {
+      const response = await fetch('/api/chat/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -56,71 +56,71 @@ export default function ChatInput() {
           userId: user?.id || 'guest',
         }),
         signal: abortControllerRef.current.signal,
-        
-        async onopen(response) {
-          console.log('SSE Response status:', response.status);
-          console.log('SSE Response content-type:', response.headers.get('content-type'));
-          
-          if (response.ok) {
-            console.log('SSE connection opened successfully');
-            return; // 一切正常
-          } else {
-            const errorText = await response.text();
-            console.error('HTTP error:', response.status, errorText);
-            throw new Error(`HTTP ${response.status}: ${errorText}`);
-          }
-        },
-        
-        onmessage(event) {
-          console.log('SSE message received:', event.data);
+      });
+
+      console.log('Response status:', response.status);
+      console.log('Response content-type:', response.headers.get('content-type'));
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          console.log('Stream finished');
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+          const data = trimmedLine.slice(6).trim();
+          console.log('Received SSE data:', data);
+
           try {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'session') {
-              console.log('Session ID:', data.sessionId);
-              setSessionId(data.sessionId);
-            } else if (data.type === 'content') {
-              accumulatedContent += data.content;
-              console.log('Accumulated content:', accumulatedContent);
+            const parsed = JSON.parse(data);
+
+            if (parsed.type === 'session') {
+              console.log('Session ID:', parsed.sessionId);
+              setSessionId(parsed.sessionId);
+            } else if (parsed.type === 'content') {
+              accumulatedContent += parsed.content;
+              console.log('Accumulated:', accumulatedContent);
               updateLastMessage(accumulatedContent);
-            } else if (data.type === 'done') {
+            } else if (parsed.type === 'done') {
               console.log('Stream completed');
-            } else if (data.type === 'error') {
-              console.error('Stream error:', data.error);
-              updateLastMessage('抱歉，服务出错了：' + data.error);
+            } else if (parsed.type === 'error') {
+              console.error('Stream error:', parsed.error);
+              updateLastMessage('抱歉，服务出错了：' + parsed.error);
             }
           } catch (e) {
-            console.error('Parse error:', e, 'Raw data:', event.data);
+            console.error('Parse error:', e, 'Raw:', data);
           }
-        },
-        
-        onerror(err) {
-          console.error('SSE onerror triggered:', err);
-          
-          // 不要立即更新错误消息，等待看是否能恢复
-          if (!accumulatedContent) {
-            console.log('No content received yet, showing error');
-            updateLastMessage('网络错误，请检查连接后重试');
-          }
-          
-          // 抛出错误停止重连
-          throw err;
-        },
-        
-        onclose() {
-          console.log('SSE connection closed');
-        },
-      });
+        }
+      }
     } catch (error: any) {
-      console.error('fetchEventSource error:', error);
+      console.error('Fetch error:', error);
       if (error.name === 'AbortError') {
-        console.log('Request aborted by user');
+        console.log('Request aborted');
       } else if (!accumulatedContent) {
-        console.log('Setting error message in catch block');
         updateLastMessage('抱歉，发送失败了，请再试一次。');
       }
     } finally {
-      console.log('Finally block, setting loading to false');
+      console.log('Setting loading to false');
       setLoading(false);
       abortControllerRef.current = null;
     }
