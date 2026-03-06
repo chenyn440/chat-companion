@@ -40,9 +40,13 @@ export default memo(function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [showSessions, setShowSessions] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null); // 用于取消请求
+  const currentRequestIdRef = useRef<string | null>(null); // 当前请求 ID
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { isLoggedIn, user, checkAuth } = useAuthStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  const MAX_INPUT_LENGTH = 2000; // 最大输入长度
 
   useEffect(() => {
     // 检查登录状态
@@ -108,10 +112,24 @@ export default memo(function ChatPage() {
   });
 
   const sendMessage = useMemoizedFn(async () => {
+    // 输入长度检查
+    if (input.length > MAX_INPUT_LENGTH) {
+      alert(`输入内容过长，最多支持 ${MAX_INPUT_LENGTH} 个字符`);
+      return;
+    }
+
     if (!input.trim() || isLoading || !selectedCharacter) return;
+
+    // 并发控制：如果正在生成，提示用户
+    if (isLoading) {
+      alert('正在生成中，请先停止或等待完成');
+      return;
+    }
 
     // 保存消息内容，避免被清空
     const messageContent = input;
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; // 生成唯一 requestId
+    currentRequestIdRef.current = requestId;
 
     const userMessage: Message = {
       _id: Date.now().toString(),
@@ -135,7 +153,7 @@ export default memo(function ChatPage() {
     setMessages((prev) => [...prev, aiMessage]);
 
     let accumulatedContent = '';
-    const abortController = new AbortController();
+    abortControllerRef.current = new AbortController();
 
     try {
       await fetchEventSource('/api/chat/send', {
@@ -149,27 +167,38 @@ export default memo(function ChatPage() {
           character: selectedCharacter._id,
           mode: 'companion',
           userId: user?.id,
+          requestId, // 传递 requestId
         }),
-        signal: abortController.signal,
+        signal: abortControllerRef.current.signal,
 
         async onopen(response) {
           if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
-            console.log('SSE connection opened');
+            console.log('SSE connection opened, requestId:', requestId);
             return;
-          } else if (response.status === 401) {
+          } else if (response.status === 401 || response.status === 403) {
             alert('请先登录');
             window.location.href = '/login';
             throw new Error('Unauthorized');
+          } else if (response.status >= 500) {
+            const errorText = await response.text();
+            alert('服务器错误，请稍后重试');
+            throw new Error(`Server error: ${response.status}`);
           } else if (response.status >= 400) {
             const errorText = await response.text();
-            alert('服务异常：' + errorText);
-            throw new Error(`HTTP ${response.status}`);
+            alert(`请求错误 (${response.status})`);
+            throw new Error(`Client error: ${response.status}`);
           }
         },
 
         onmessage(event) {
           try {
             const data = JSON.parse(event.data);
+
+            // 检查 requestId 是否匹配，防止串线
+            if (data.requestId && data.requestId !== requestId) {
+              console.warn('Received message for different request, ignoring');
+              return;
+            }
 
             if (data.type === 'session') {
               setSessionId(data.sessionId);
@@ -188,7 +217,7 @@ export default memo(function ChatPage() {
                 return newMessages;
               });
             } else if (data.type === 'done') {
-              console.log('Stream completed');
+              console.log('Stream completed, requestId:', requestId);
               // 刷新会话列表
               if (user?.id) {
                 loadSessions();
@@ -205,7 +234,7 @@ export default memo(function ChatPage() {
         onerror(err) {
           console.error('SSE error:', err);
           if (!accumulatedContent) {
-            alert('网络错误，请检查连接后重试');
+            alert('连接中断，请检查网络后重试');
             // 移除空的 AI 消息
             setMessages((prev) => prev.filter(m => m._id !== aiMessageId));
           }
@@ -213,17 +242,30 @@ export default memo(function ChatPage() {
         },
 
         onclose() {
-          console.log('SSE connection closed');
+          console.log('SSE connection closed, requestId:', requestId);
         },
       });
     } catch (error: any) {
       console.error('Send message error:', error);
-      if (!accumulatedContent) {
+      if (error.name === 'AbortError') {
+        console.log('Request cancelled by user');
+      } else if (!accumulatedContent) {
         // 移除空的 AI 消息
         setMessages((prev) => prev.filter(m => m._id !== aiMessageId));
       }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
+      currentRequestIdRef.current = null;
+    }
+  });
+
+  // 停止生成
+  const stopGeneration = useMemoizedFn(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsLoading(false);
+      console.log('Generation stopped by user');
     }
   });
 
@@ -445,18 +487,33 @@ export default memo(function ChatPage() {
               onKeyDown={handleKeyDown}
               placeholder="输入消息..."
               rows={1}
-              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+              disabled={isLoading}
+              className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none disabled:bg-gray-100"
               style={{ minHeight: '48px', maxHeight: '120px' }}
             />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              发送
-            </button>
+            {isLoading ? (
+              <button
+                onClick={stopGeneration}
+                className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+              >
+                停止
+              </button>
+            ) : (
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || isLoading}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                发送
+              </button>
+            )}
           </div>
-          <p className="text-xs text-gray-400 mt-2">按 Enter 发送，Shift + Enter 换行</p>
+          <div className="flex justify-between items-center mt-2">
+            <p className="text-xs text-gray-400">按 Enter 发送，Shift + Enter 换行</p>
+            <p className={`text-xs ${input.length > MAX_INPUT_LENGTH ? 'text-red-500' : 'text-gray-400'}`}>
+              {input.length} / {MAX_INPUT_LENGTH}
+            </p>
+          </div>
         </div>
       </div>
     </div>
