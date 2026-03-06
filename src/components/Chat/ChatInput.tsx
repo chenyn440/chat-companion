@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Send } from 'lucide-react';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useChatStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
 
 export default function ChatInput() {
   const [input, setInput] = useState('');
-  const { sessionId, mode, character, addMessage, setSessionId, setLoading } = useChatStore();
+  const { sessionId, mode, character, addMessage, setSessionId, setLoading, updateLastMessage } = useChatStore();
   const { user } = useAuthStore();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const handleSend = async () => {
     if (!input.trim()) return;
@@ -23,12 +25,26 @@ export default function ChatInput() {
       timestamp: new Date().toISOString(),
     });
     
+    // 添加空的 AI 消息占位
+    addMessage({
+      role: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+    });
+    
     setLoading(true);
     
+    // 创建新的 AbortController
+    abortControllerRef.current = new AbortController();
+    
+    let accumulatedContent = '';
+
     try {
-      const res = await fetch('/api/chat/send', {
+      await fetchEventSource('/api/chat/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           message: userMessage,
           sessionId,
@@ -36,35 +52,58 @@ export default function ChatInput() {
           character,
           userId: user?.id || 'guest',
         }),
+        signal: abortControllerRef.current.signal,
+        
+        async onopen(response) {
+          if (response.ok) {
+            console.log('SSE connection opened');
+          } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+        },
+        
+        onmessage(event) {
+          try {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'session') {
+              setSessionId(data.sessionId);
+            } else if (data.type === 'content') {
+              accumulatedContent += data.content;
+              updateLastMessage(accumulatedContent);
+            } else if (data.type === 'done') {
+              console.log('Stream completed');
+            } else if (data.type === 'error') {
+              console.error('Stream error:', data.error);
+              updateLastMessage('抱歉，服务出错了：' + data.error);
+            }
+          } catch (e) {
+            console.error('Parse error:', e);
+          }
+        },
+        
+        onerror(err) {
+          console.error('SSE error:', err);
+          updateLastMessage('抱歉，连接出错了，请重试。');
+          throw err; // 停止重连
+        },
+        
+        onclose() {
+          console.log('SSE connection closed');
+        },
       });
-      
-      const data = await res.json();
-      console.log('API 响应:', data);
-      
-      if (data.success) {
-        setSessionId(data.data.sessionId);
-        addMessage({
-          role: 'assistant',
-          content: data.data.aiReply,
-          timestamp: data.data.timestamp,
-        });
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Request aborted');
       } else {
-        console.error('API 返回错误:', data.error);
-        addMessage({
-          role: 'assistant',
-          content: '抱歉，服务器返回错误：' + data.error,
-          timestamp: new Date().toISOString(),
-        });
+        console.error('Send message error:', error);
+        if (!accumulatedContent) {
+          updateLastMessage('抱歉，发送失败了，请再试一次。');
+        }
       }
-    } catch (error) {
-      console.error('Send message error:', error);
-      addMessage({
-        role: 'assistant',
-        content: '抱歉，发送失败了，请再试一次。',
-        timestamp: new Date().toISOString(),
-      });
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
 

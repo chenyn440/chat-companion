@@ -1,12 +1,12 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import dbConnect from '@/lib/db/mongoose';
 import Session from '@/models/Session';
-import { chatWithZhipu } from '@/lib/services/zhipu';
+import { chatWithZhipuStream } from '@/lib/services/zhipu';
 import { getCharacterById } from '@/lib/config/characters';
 
 // 聊天模式设定
 const modes = {
-  treehole: '请只倾听，不要给建议，让用户尽情倾诉。',
+  treehole: '请只倾听，不要给建议,让用户尽情倾诉。',
   advice: '请分析问题并给出具体可行的建议。',
   companion: '请像朋友一样轻松自然地聊天。',
 };
@@ -18,11 +18,17 @@ export async function POST(req: NextRequest) {
     const { message, sessionId, mode = 'companion', character = 'gentle', userId } = await req.json();
 
     if (!message) {
-      return NextResponse.json({ success: false, error: '消息不能为空' }, { status: 400 });
+      return new Response(
+        JSON.stringify({ success: false, error: '消息不能为空' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     if (!userId || userId === 'guest') {
-      return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
+      return new Response(
+        JSON.stringify({ success: false, error: '请先登录' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
     // 获取或创建会话
@@ -63,42 +69,79 @@ export async function POST(req: NextRequest) {
     ];
 
     const apiKey = process.env.ZHIPU_API_KEY;
-    let aiReply: string;
 
-    if (apiKey && apiKey !== 'your_zhipu_api_key_here') {
-      try {
-        aiReply = await chatWithZhipu(zhipuMessages, apiKey);
-      } catch (error: any) {
-        console.error('Zhipu API error:', error);
-        aiReply = '抱歉，AI 服务暂时不可用，请稍后再试。';
-      }
-    } else {
-      aiReply = '抱歉，AI 服务未配置。';
+    if (!apiKey || apiKey === 'your_zhipu_api_key_here') {
+      return new Response(
+        JSON.stringify({ success: false, error: 'AI 服务未配置' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    // 添加 AI 回复
-    session.messages.push({
-      role: 'assistant',
-      content: aiReply,
-      timestamp: new Date(),
+    // 创建 SSE 流式响应
+    const encoder = new TextEncoder();
+    let fullReply = '';
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // 发送会话 ID
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: 'session', sessionId: session._id })}\n\n`)
+          );
+
+          // 获取智谱流式响应
+          const zhipuStream = await chatWithZhipuStream(zhipuMessages, apiKey);
+          const reader = zhipuStream.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            fullReply += chunk;
+
+            // 发送内容块
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: 'content', content: chunk })}\n\n`)
+            );
+          }
+
+          // 保存完整回复到数据库
+          session.messages.push({
+            role: 'assistant',
+            content: fullReply,
+            timestamp: new Date(),
+          });
+          await session.save();
+
+          // 发送完成信号
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
+          );
+        } catch (error: any) {
+          console.error('Stream error:', error);
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`)
+          );
+        } finally {
+          controller.close();
+        }
+      },
     });
 
-    // 保存到数据库
-    await session.save();
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        sessionId: session._id,
-        aiReply,
-        timestamp: new Date().toISOString(),
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
       },
     });
   } catch (error) {
     console.error('Chat error:', error);
-    return NextResponse.json(
-      { success: false, error: '服务器错误' },
-      { status: 500 }
+    return new Response(
+      JSON.stringify({ success: false, error: '服务器错误' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

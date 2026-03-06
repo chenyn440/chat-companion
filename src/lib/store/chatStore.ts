@@ -19,6 +19,7 @@ interface ChatState {
   // Actions
   setSessionId: (id: string | null) => void;
   addMessage: (message: Message) => void;
+  updateLastMessage: (content: string) => void;
   setMode: (mode: ChatMode) => void;
   setCharacter: (character: Character) => void;
   setLoading: (loading: boolean) => void;
@@ -36,6 +37,16 @@ export const useChatStore = create<ChatState>((set) => ({
   addMessage: (message) => set((state) => ({
     messages: [...state.messages, message],
   })),
+  updateLastMessage: (content) => set((state) => {
+    const messages = [...state.messages];
+    if (messages.length > 0) {
+      messages[messages.length - 1] = {
+        ...messages[messages.length - 1],
+        content,
+      };
+    }
+    return { messages };
+  }),
   setMode: (mode) => set({ mode }),
   setCharacter: (character) => set({ character }),
   setLoading: (loading) => set({ isLoading: loading }),
