@@ -98,17 +98,26 @@ export async function chatWithZhipuStream(
         return;
       }
 
+      let buffer = ''; // 缓冲区，处理跨 chunk 的数据
+
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n').filter(line => line.trim());
+          // 将新数据追加到缓冲区
+          buffer += decoder.decode(value, { stream: true });
+          
+          // 按行分割，保留最后一个不完整的行
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // 保留最后一个可能不完整的行
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+
+            if (trimmedLine.startsWith('data: ')) {
+              const data = trimmedLine.slice(6).trim();
               if (data === '[DONE]') continue;
 
               try {
@@ -118,7 +127,7 @@ export async function chatWithZhipuStream(
                   controller.enqueue(new TextEncoder().encode(content));
                 }
               } catch (e) {
-                console.error('Parse error:', e);
+                console.error('Parse error:', e, 'Raw data:', data);
               }
             }
           }
