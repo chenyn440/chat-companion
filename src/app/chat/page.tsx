@@ -264,9 +264,12 @@ export default memo(function ChatPage() {
   const stopGeneration = useMemoizedFn(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      setIsLoading(false);
-      console.log('Generation stopped by user');
+      abortControllerRef.current = null;
+      currentRequestIdRef.current = null;
     }
+    // 立即清除 loading 状态
+    setIsLoading(false);
+    console.log('Generation stopped by user');
   });
 
   const handleKeyDown = useMemoizedFn((e: React.KeyboardEvent) => {
