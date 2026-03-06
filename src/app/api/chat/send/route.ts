@@ -82,13 +82,30 @@ export async function POST(req: NextRequest) {
     const modePrompt = modes[mode as keyof typeof modes] || modes.companion;
     const systemPrompt = `${characterConfig.prompt}\n\n当前模式：${modePrompt}\n\n请根据以上设定回复用户。`;
 
-    const apiMessages = [
-      { role: 'system', content: systemPrompt },
-      ...session.messages.slice(-10).map((m: any) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
-    ];
+    // Groq DeepSeek R1 不支持 system role，需要把 system prompt 合并到首条 user 消息
+    const historyMessages = session.messages.slice(-10).map((m: any) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
+
+    let apiMessages: { role: string; content: string }[];
+    if (modelConfig.provider === 'groq') {
+      // 把 system prompt 前置到第一条 user 消息里
+      apiMessages = historyMessages.map((m: { role: string; content: string }, i: number) => {
+        if (i === 0 && m.role === 'user') {
+          return { ...m, content: `[系统设定]\n${systemPrompt}\n\n[用户消息]\n${m.content}` };
+        }
+        return m;
+      });
+      if (apiMessages.length === 0) {
+        apiMessages = [{ role: 'user', content: `[系统设定]\n${systemPrompt}\n\n[用户消息]\n${message}` }];
+      }
+    } else {
+      apiMessages = [
+        { role: 'system', content: systemPrompt },
+        ...historyMessages,
+      ];
+    }
 
     // 调用 AI API
     const aiRes = await fetch(apiUrl, {
