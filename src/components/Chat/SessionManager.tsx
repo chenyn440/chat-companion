@@ -130,8 +130,8 @@ export default function SessionManager({
                   <>
                     <span className="flex-1 text-xs truncate">{s.title}</span>
 
-                    {/* 操作按钮：hover 显示，非 hover 显示时间；两者高度一致 */}
-                    <div className="flex-shrink-0 flex items-center gap-0.5" onClick={e => e.stopPropagation()}>
+                    {/* 操作按钮：hover 显示，非 hover 显示时间；固定宽度保证行高不变 */}
+                    <div className="flex-shrink-0 w-[72px] flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
                       <span className="text-gray-600 text-xs group-hover:hidden">
                         {formatTime(s.updatedAt)}
                       </span>
