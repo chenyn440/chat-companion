@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useChatStore, Message } from '@/lib/store/chatStore';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
@@ -7,6 +8,12 @@ import ChatHeader from './ChatHeader';
 
 export default function ChatContainer() {
   const { messages, isLoading } = useChatStore();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 自动滚动到底部
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-50">
@@ -19,9 +26,12 @@ export default function ChatContainer() {
             <p className="text-sm mt-2">我在这里倾听你的一切</p>
           </div>
         ) : (
-          messages.map((message: Message, index: number) => (
-            <ChatMessage key={index} message={message} />
-          ))
+          <>
+            {messages.map((message: Message, index: number) => (
+              <ChatMessage key={index} message={message} />
+            ))}
+            <div ref={messagesEndRef} />
+          </>
         )}
         {isLoading && (
           <div className="flex items-center space-x-2 text-gray-400">
