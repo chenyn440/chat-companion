@@ -130,29 +130,31 @@ export default function SessionManager({
                   <>
                     <span className="flex-1 text-xs truncate">{s.title}</span>
 
-                    {/* 操作按钮：hover 显示，非 hover 显示时间；固定宽度保证行高不变 */}
-                    <div className="flex-shrink-0 w-[72px] flex items-center justify-end gap-0.5" onClick={e => e.stopPropagation()}>
-                      <span className="text-gray-600 text-xs group-hover:hidden">
+                    {/* 右侧操作区：固定宽度，时间和按钮绝对定位叠层，互不影响行高 */}
+                    <div className="flex-shrink-0 relative h-5" style={{ width: 76 }} onClick={e => e.stopPropagation()}>
+                      {/* 时间：hover 时淡出 */}
+                      <span className="absolute inset-0 flex items-center justify-end text-gray-600 text-xs group-hover:opacity-0 transition-opacity pointer-events-none">
                         {formatTime(s.updatedAt)}
                       </span>
-                      <div className="hidden group-hover:flex items-center gap-0.5">
+                      {/* 按钮组：hover 时淡入，始终占位不撑高 */}
+                      <div className="absolute inset-0 flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => onTogglePin(s.id)}
-                          className="p-1 rounded hover:bg-white/15"
+                          className="p-0.5 rounded hover:bg-white/15"
                           title={s.pinned ? '取消置顶' : '置顶'}
                         >
                           <Pin size={13} className={s.pinned ? 'text-amber-400' : 'text-gray-400'} />
                         </button>
                         <button
                           onClick={() => { setEditingId(s.id); setEditTitle(s.title); }}
-                          className="p-1 rounded hover:bg-white/15"
+                          className="p-0.5 rounded hover:bg-white/15"
                           title="重命名"
                         >
                           <Edit2 size={13} className="text-gray-400" />
                         </button>
                         <button
                           onClick={() => { if (confirm('确定删除？')) onDeleteSession(s.id); }}
-                          className="p-1 rounded hover:bg-red-500/20"
+                          className="p-0.5 rounded hover:bg-red-500/20"
                           title="删除"
                         >
                           <Trash2 size={13} className="text-red-400" />
