@@ -540,6 +540,14 @@ function ChatV2Inner() {
             {currentSession?.title || '新对话'}
           </h1>
           <div className="flex items-center gap-1">
+            {isLoggedIn && user && (
+              <button
+                onClick={() => setShowFriends(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+              >
+                <Users size={15} />好友
+              </button>
+            )}
             <button
               onClick={() => setShowShare(true)}
               disabled={!currentSessionId || messages.length === 0}
