@@ -77,3 +77,13 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+// 可选：处理 OPTIONS 请求（跨域预检）
+export async function OPTIONS() {
+  return NextResponse.json({}, {
+    headers: {
+      'Access-Control-Allow-Origin': '*', // 生产环境替换为你的域名
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    }
+  });
+}
