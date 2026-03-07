@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Copy, Star, Check, RefreshCw } from 'lucide-react';
+import { Copy, Star, Check, RefreshCw, Share2 } from 'lucide-react';
 
 interface MessageActionsProps {
   messageId: string;
@@ -10,6 +10,7 @@ interface MessageActionsProps {
   onToggleFavorite: () => void;
   onRegenerate?: () => void;
   isRegenerating?: boolean;
+  onForward?: () => void;
 }
 
 export default function MessageActions({
@@ -18,6 +19,7 @@ export default function MessageActions({
   onToggleFavorite,
   onRegenerate,
   isRegenerating,
+  onForward,
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false);
 
@@ -54,6 +56,18 @@ export default function MessageActions({
         <Star size={13} className={favorited ? 'fill-amber-400' : ''} />
         <span>{favorited ? '已收藏' : '收藏'}</span>
       </button>
+
+      {/* 转发 */}
+      {onForward && (
+        <button
+          onClick={onForward}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          title="转发给好友"
+        >
+          <Share2 size={13} />
+          <span>转发</span>
+        </button>
+      )}
 
       {/* 重新生成 */}
       {onRegenerate && (

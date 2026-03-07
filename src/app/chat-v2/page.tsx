@@ -12,9 +12,9 @@ import ShareDialog from '@/components/Chat/ShareDialog';
 import FriendsDialog from '@/components/Chat/FriendsDialog';
 import {
   Send, StopCircle, Download, PenSquare, Share2, Users,
-  ChevronLeft, ChevronRight, Star, MoreHorizontal,
+  ChevronLeft, ChevronRight, Star, MoreHorizontal, User,
   ChevronRight as ArrowRight, ChevronLeft as ArrowLeft,
-  X,
+  X, Share,
 } from 'lucide-react';
 
 function ChatV2Inner() {
@@ -29,7 +29,61 @@ function ChatV2Inner() {
   const [showShare, setShowShare] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
-  const [deepThinking, setDeepThinking] = useState(false); // 深度思考开关（单次生效）
+  const [deepThinking, setDeepThinking] = useState(false);
+
+  // 转发相关
+  const [forwardContent, setForwardContent] = useState<string | null>(null);
+  const [forwardFriends, setForwardFriends] = useState<{ id: string; nickname: string }[]>([]);
+  const [forwardLoading, setForwardLoading] = useState(false);
+  const [forwardToast, setForwardToast] = useState('');
+
+  const showForwardToast = (msg: string) => {
+    setForwardToast(msg);
+    setTimeout(() => setForwardToast(''), 2500);
+  };
+
+  const openForward = async (content: string) => {
+    setForwardContent(content);
+    // 拉好友列表
+    if (!user?.id) return;
+    try {
+      const r = await fetch('/api/friends', { headers: { 'x-user-id': user.id } });
+      const d = await r.json();
+      if (d.success) setForwardFriends(d.data);
+    } catch { /* ignore */ }
+  };
+
+  const doForward = async (friendId: string, friendNickname: string) => {
+    if (!user?.id || !forwardContent || forwardLoading) return;
+    setForwardLoading(true);
+    try {
+      // 获取/创建会话
+      const cr = await fetch('/api/dm/conversations', {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ friendId }),
+      });
+      const cd = await cr.json();
+      if (!cd.success) { showForwardToast('转发失败，请重试'); return; }
+      // 发送消息
+      const mr = await fetch(`/api/dm/conversations/${cd.data.conversationId}/messages`, {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: forwardContent, type: 'text' }),
+      });
+      const md = await mr.json();
+      if (md.success) {
+        showForwardToast(`已转发给 ${friendNickname}`);
+        setForwardContent(null);
+      } else {
+        showForwardToast('转发失败，请重试');
+      }
+    } catch {
+      showForwardToast('网络错误，请重试');
+    } finally {
+      setForwardLoading(false);
+    }
+  };
 
   const searchParams = useSearchParams();
   const [input, setInput] = useState(() => {
@@ -404,10 +458,13 @@ function ChatV2Inner() {
         {/* Logo + 折叠 */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
           {!sidebarCollapsed && (
-            <div className="flex items-center gap-2">
+            <a href="/" className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" title="返回首页">
               <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">AI</div>
               <span className="text-white font-semibold text-sm">Chat 助手</span>
-            </div>
+            </a>
+          )}
+          {sidebarCollapsed && (
+            <a href="/" className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold cursor-pointer hover:opacity-80 transition-opacity mx-auto" title="返回首页">AI</a>
           )}
           <button
             onClick={() => setSidebarCollapsed(v => !v)}
@@ -503,6 +560,14 @@ function ChatV2Inner() {
           {/* 用户下拉菜单 */}
           {showUserMenu && (
             <div className="absolute bottom-14 left-2 right-2 bg-[#2C2C2E] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50">
+              <a
+                href="/profile"
+                onClick={() => setShowUserMenu(false)}
+                className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-white/10 transition-colors"
+              >
+                <User size={15} />个人中心
+              </a>
+              <div className="border-t border-white/10" />
               <button
                 onClick={() => { setShowFriends(true); setShowUserMenu(false); }}
                 className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-200 hover:bg-white/10 transition-colors"
@@ -681,6 +746,7 @@ function ChatV2Inner() {
                               onToggleFavorite={() => handleToggleFavorite(msg.id)}
                               onRegenerate={isLastAssistant ? () => handleRegenerate(msg) : undefined}
                               isRegenerating={isStreaming}
+                              onForward={isLoggedIn ? () => openForward(msg.content) : undefined}
                             />
                           </div>
                         )}
@@ -753,6 +819,54 @@ function ChatV2Inner() {
             </div>
           </div>
       </div>
+
+      {/* 转发 Toast */}
+      {forwardToast && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-gray-900/90 text-white text-sm px-5 py-2.5 rounded-full shadow-xl z-[80] whitespace-nowrap">
+          {forwardToast}
+        </div>
+      )}
+
+      {/* 转发好友选择弹窗 */}
+      {forwardContent !== null && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setForwardContent(null)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-sm flex flex-col overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="font-semibold text-gray-900">转发给好友</h2>
+              <button onClick={() => setForwardContent(null)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
+                <X size={18} />
+              </button>
+            </div>
+            {/* 消息预览 */}
+            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+              <p className="text-xs text-gray-400 mb-1">转发内容</p>
+              <p className="text-sm text-gray-700 line-clamp-3">{forwardContent}</p>
+            </div>
+            {/* 好友列表 */}
+            <div className="flex-1 overflow-y-auto max-h-72 p-3">
+              {forwardFriends.length === 0 ? (
+                <p className="text-center text-gray-400 text-sm py-8">暂无好友</p>
+              ) : (
+                forwardFriends.map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => doForward(f.id, f.nickname)}
+                    disabled={forwardLoading}
+                    className="flex items-center gap-3 w-full p-3 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                      {f.nickname.slice(0, 1)}
+                    </div>
+                    <span className="font-medium text-gray-800 text-sm">{f.nickname}</span>
+                    <span className="ml-auto text-xs text-blue-600">发送</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
