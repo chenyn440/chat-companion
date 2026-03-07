@@ -2,12 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
-import {
-  ChevronLeft, ChevronRight, User, Copy, Check,
-  Shield, MessageSquare, Heart, BookOpen,
-  HelpCircle, MessageCircle, LogOut, Info,
-  FileText, Settings,
-} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ChevronLeft, ChevronRight, User, Copy, Check, MessageSquare, Calendar, Star, Smile } from 'lucide-react';
+import { CHARACTERS } from '@/lib/config/characters';
 
 // 手机号脱敏
 function maskPhone(phone: string) {
@@ -15,38 +12,56 @@ function maskPhone(phone: string) {
   return phone.slice(0, 3) + '****' + phone.slice(-4);
 }
 
-export default function ProfilePage() {
-  const { user, setUser, isLoggedIn, checkAuth, logout } = useAuthStore();
-  const [authLoading, setAuthLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
+interface UserStats {
+  totalSessions: number;
+  totalMessages: number;
+  usageDays: number;
+  favoriteCharacter: string;
+  favoriteCharacterKey: string;
+}
 
-  // 编辑昵称
+export default function ProfilePage() {
+  const router = useRouter();
+  const { user, setUser, isLoggedIn, checkAuth } = useAuthStore();
+  const [authLoading, setAuthLoading] = useState(true);
+  const [stats, setStats] = useState<UserStats | null>(null);
+
+  // 昵称编辑
   const [editing, setEditing] = useState(false);
   const [nickname, setNickname] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // 退出确认弹窗
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  // 复制 ID
+  const [copied, setCopied] = useState(false);
+
+  // Toast
+  const [toast, setToast] = useState('');
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2000);
+  };
 
   useEffect(() => {
     checkAuth().then(() => setAuthLoading(false));
   }, []);
 
   useEffect(() => {
-    if (user?.nickname) setNickname(user.nickname);
-  }, [user?.nickname]);
+    if (authLoading) return;
+    if (!isLoggedIn) { router.replace('/login'); return; }
+    if (user?.id) fetchStats();
+  }, [authLoading, isLoggedIn, user?.id]);
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!isLoggedIn) window.location.href = '/login';
-  }, [authLoading, isLoggedIn]);
+    if (user?.nickname && !editing) setNickname(user.nickname);
+  }, [user?.nickname]);
 
-  const handleCopyId = () => {
+  const fetchStats = async () => {
     if (!user?.id) return;
-    navigator.clipboard.writeText(user.id).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    try {
+      const res = await fetch(`/api/user/stats?userId=${user.id}`);
+      const data = await res.json();
+      if (data.success) setStats(data.data);
+    } catch { /* ignore */ }
   };
 
   const handleSaveNickname = async () => {
@@ -68,10 +83,38 @@ export default function ProfilePage() {
     }
   };
 
-  const handleLogout = async () => {
-    setShowLogoutConfirm(false);
-    await logout(true);
-    window.location.href = '/login';
+  const handleSetDefaultCharacter = async (charId: string) => {
+    if (!user?.id) return;
+    const prevCharId = user.preferences?.defaultCharacter;
+    const prevMode = user.preferences?.defaultMode || 'companion';
+    // 乐观更新
+    setUser({ ...user, preferences: { defaultCharacter: charId, defaultMode: prevMode } });
+    try {
+      const res = await fetch('/api/user/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, preferences: { defaultCharacter: charId, defaultMode: prevMode } }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('已设置');
+      } else {
+        setUser({ ...user, preferences: { defaultCharacter: prevCharId || 'gentle', defaultMode: prevMode } });
+        showToast('设置失败，请重试');
+      }
+    } catch {
+      setUser({ ...user, preferences: { defaultCharacter: prevCharId || 'gentle', defaultMode: prevMode } });
+      showToast('设置失败，请重试');
+    }
+  };
+
+  const handleCopyPhone = () => {
+    if (!user?.phone) return;
+    navigator.clipboard.writeText(user.phone).then(() => {
+      setCopied(true);
+      showToast('已复制');
+      setTimeout(() => setCopied(false), 2000);
+    });
   };
 
   if (authLoading) {
@@ -82,21 +125,31 @@ export default function ProfilePage() {
     );
   }
 
+  const currentCharId = user?.preferences?.defaultCharacter || 'gentle';
+
   return (
     <div className="min-h-screen bg-[#F7F8FA]" style={{ fontFamily: '-apple-system, "PingFang SC", sans-serif' }}>
-      {/* 顶部导航 */}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-900/90 text-white text-sm px-5 py-2 rounded-full shadow-xl z-50">
+          {toast}
+        </div>
+      )}
+
+      {/* 顶部导航栏 */}
       <div className="bg-white border-b border-gray-100 sticky top-0 z-10">
         <div className="flex items-center px-4 h-14">
-          <a href="/chat-v2" className="p-1.5 -ml-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
+          <button onClick={() => router.back()} className="p-1.5 -ml-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors">
             <ChevronLeft size={22} />
-          </a>
+          </button>
           <h1 className="ml-2 text-[17px] font-semibold text-gray-900">个人中心</h1>
         </div>
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-5 space-y-4">
 
-        {/* ── 顶部信息区 ── */}
+        {/* ── 用户信息卡 ── */}
         <div className="bg-white rounded-2xl px-5 py-5 shadow-sm">
           <div className="flex items-center gap-4">
             {/* 头像 */}
@@ -106,27 +159,27 @@ export default function ProfilePage() {
 
             {/* 信息 */}
             <div className="flex-1 min-w-0">
-              {/* 昵称行 */}
+              {/* 昵称 */}
               {editing ? (
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-2">
                   <input
                     value={nickname}
                     onChange={e => setNickname(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSaveNickname()}
-                    className="flex-1 text-[15px] font-semibold border border-blue-300 rounded-lg px-2 py-1 outline-none focus:border-blue-500"
+                    className="flex-1 text-[15px] font-semibold border border-blue-300 rounded-lg px-2 py-1 outline-none focus:border-blue-500 min-w-0"
                     autoFocus
                   />
                   <button onClick={handleSaveNickname} disabled={saving}
-                    className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-2.5 py-1 rounded-lg disabled:opacity-50">
+                    className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-2.5 py-1 rounded-lg disabled:opacity-50 flex-shrink-0">
                     {saving ? '保存中' : '保存'}
                   </button>
                   <button onClick={() => { setEditing(false); setNickname(user?.nickname || ''); }}
-                    className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1">
+                    className="text-xs text-gray-400 hover:text-gray-600 px-1.5 py-1 flex-shrink-0">
                     取消
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-[16px] font-semibold text-gray-900 truncate">
                     {user?.nickname || '未设置昵称'}
                   </span>
@@ -137,140 +190,126 @@ export default function ProfilePage() {
                 </div>
               )}
 
-              {/* 手机号（脱敏） */}
-              <p className="text-[13px] text-gray-400 mb-1.5">{maskPhone(user?.phone || '')}</p>
-
-              {/* 用户 ID */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-[12px] text-gray-400">ID: </span>
-                <span className="text-[12px] text-gray-500 font-mono">{user?.id?.slice(-8)}</span>
-                <button onClick={handleCopyId}
-                  className="text-gray-400 hover:text-blue-500 transition-colors">
-                  {copied ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
-                </button>
-              </div>
+              {/* 手机号（脱敏 + 可复制） */}
+              <button
+                onClick={handleCopyPhone}
+                className="flex items-center gap-1.5 text-[13px] text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <span>{maskPhone(user?.phone || '')}</span>
+                {copied
+                  ? <Check size={12} className="text-green-500" />
+                  : <Copy size={12} className="text-gray-300" />
+                }
+              </button>
             </div>
           </div>
         </div>
 
-        {/* ── 我的内容 ── */}
-        <Section title="我的内容">
-          <MenuItem icon={<MessageSquare size={16} className="text-blue-500" />} label="我的会话" href="/sessions" />
-          <MenuItem icon={<Heart size={16} className="text-red-400" />} label="我的收藏" href="/sessions" badge="收藏" />
-          <MenuItem icon={<BookOpen size={16} className="text-violet-500" />} label="心情日记" href="/mood" />
-        </Section>
+        {/* ── 使用统计 ── */}
+        <div className="bg-white rounded-2xl px-5 py-4 shadow-sm">
+          <h3 className="text-[13px] font-medium text-gray-500 mb-3">使用统计</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              icon={<MessageSquare size={18} className="text-blue-500" />}
+              bg="bg-blue-50"
+              value={stats?.totalSessions ?? 0}
+              label="对话次数"
+            />
+            <StatCard
+              icon={<MessageSquare size={18} className="text-green-500" />}
+              bg="bg-green-50"
+              value={stats?.totalMessages ?? 0}
+              label="消息条数"
+            />
+            <StatCard
+              icon={<Calendar size={18} className="text-purple-500" />}
+              bg="bg-purple-50"
+              value={stats?.usageDays ?? 0}
+              label="使用天数"
+            />
+            <StatCard
+              icon={<Star size={18} className="text-orange-400" />}
+              bg="bg-orange-50"
+              value={stats?.favoriteCharacter ?? '-'}
+              label="最爱角色"
+              isText
+            />
+          </div>
+        </div>
 
-        {/* ── 安全与账号 ── */}
-        <Section title="账号与安全">
-          <MenuItem icon={<Shield size={16} className="text-green-500" />} label="登录方式" desc={maskPhone(user?.phone || '')} disabled />
-        </Section>
-
-        {/* ── 支持与反馈 ── */}
-        <Section title="支持与反馈">
-          <MenuItem icon={<HelpCircle size={16} className="text-amber-500" />} label="帮助中心" disabled tag="建设中" />
-          <MenuItem icon={<MessageCircle size={16} className="text-blue-400" />} label="意见反馈" disabled tag="建设中" />
-        </Section>
-
-        {/* ── 关于 ── */}
-        <Section title="关于">
-          <MenuItem icon={<Info size={16} className="text-gray-400" />} label="关于我们" desc="Chat 助手 v1.0" disabled />
-          <MenuItem icon={<FileText size={16} className="text-gray-400" />} label="隐私政策" disabled />
-          <MenuItem icon={<FileText size={16} className="text-gray-400" />} label="用户协议" disabled />
-        </Section>
-
-        {/* ── 退出登录 ── */}
+        {/* ── 偏好设置 ── */}
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          <button
-            onClick={() => setShowLogoutConfirm(true)}
-            className="flex items-center justify-center w-full px-5 py-4 text-red-500 hover:bg-red-50 transition-colors gap-2 font-medium"
-          >
-            <LogOut size={16} />
-            退出登录
-          </button>
+          <div className="px-5 py-3 border-b border-gray-50">
+            <h3 className="text-[13px] font-medium text-gray-500">偏好设置</h3>
+          </div>
+          <a href="/sessions" className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <MessageSquare size={15} className="text-blue-500" />
+              </div>
+              <span className="text-[14px] text-gray-800">对话历史</span>
+            </div>
+            <ChevronRight size={15} className="text-gray-300" />
+          </a>
+          <div className="border-t border-gray-50" />
+          <a href="/mood" className="flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-yellow-50 flex items-center justify-center">
+                <Smile size={15} className="text-yellow-500" />
+              </div>
+              <span className="text-[14px] text-gray-800">心情日记</span>
+            </div>
+            <ChevronRight size={15} className="text-gray-300" />
+          </a>
+        </div>
+
+        {/* ── 默认角色 ── */}
+        <div className="bg-white rounded-2xl px-5 py-4 shadow-sm">
+          <h3 className="text-[13px] font-medium text-gray-500 mb-3">默认角色</h3>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {CHARACTERS.map(char => {
+              const isActive = currentCharId === char.id;
+              return (
+                <button
+                  key={char.id}
+                  onClick={() => handleSetDefaultCharacter(char.id)}
+                  className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <span>{char.avatar}</span>
+                  <span>{char.name}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="pb-6" />
       </div>
-
-      {/* 退出确认弹窗 */}
-      {showLogoutConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowLogoutConfirm(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-xs overflow-hidden shadow-2xl">
-            <div className="px-6 pt-6 pb-4 text-center">
-              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
-                <LogOut size={22} className="text-red-500" />
-              </div>
-              <h3 className="text-[16px] font-semibold text-gray-900 mb-1">确认退出登录？</h3>
-              <p className="text-[13px] text-gray-400">退出后将清除本地会话数据</p>
-            </div>
-            <div className="flex border-t border-gray-100">
-              <button
-                onClick={() => setShowLogoutConfirm(false)}
-                className="flex-1 py-3.5 text-[15px] text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                取消
-              </button>
-              <div className="w-px bg-gray-100" />
-              <button
-                onClick={handleLogout}
-                className="flex-1 py-3.5 text-[15px] text-red-500 font-medium hover:bg-red-50 transition-colors"
-              >
-                退出
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-// ─── 子组件 ───
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-[12px] text-gray-400 px-1 mb-1.5 font-medium">{title}</p>
-      <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-100">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function MenuItem({
-  icon, label, desc, href, disabled, tag, badge,
+// 统计卡片
+function StatCard({
+  icon, bg, value, label, isText,
 }: {
   icon: React.ReactNode;
+  bg: string;
+  value: number | string;
   label: string;
-  desc?: string;
-  href?: string;
-  disabled?: boolean;
-  tag?: string;
-  badge?: string;
+  isText?: boolean;
 }) {
-  const content = (
-    <div className={`flex items-center gap-3 px-5 py-3.5 transition-colors ${disabled ? 'opacity-60' : 'hover:bg-gray-50 cursor-pointer'}`}>
-      <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center flex-shrink-0">
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <span className="text-[14px] text-gray-800">{label}</span>
-        {desc && <p className="text-[12px] text-gray-400 mt-0.5">{desc}</p>}
-      </div>
-      {tag && (
-        <span className="text-[11px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{tag}</span>
-      )}
-      {badge && (
-        <span className="text-[11px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{badge}</span>
-      )}
-      {!disabled && <ChevronRight size={15} className="text-gray-300 flex-shrink-0" />}
+  return (
+    <div className={`${bg} rounded-xl p-3.5 flex flex-col gap-1.5`}>
+      {icon}
+      <p className={`font-bold text-gray-800 ${isText ? 'text-[15px]' : 'text-[22px]'} leading-tight`}>
+        {value}
+      </p>
+      <p className="text-[12px] text-gray-400">{label}</p>
     </div>
   );
-
-  if (href && !disabled) {
-    return <a href={href}>{content}</a>;
-  }
-  return <div>{content}</div>;
 }
