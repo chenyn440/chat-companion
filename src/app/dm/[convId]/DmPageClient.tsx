@@ -38,15 +38,19 @@ interface ConvItem {
   updatedAt: number;
 }
 
-function Avatar({ name, size = 32, gradient = 'from-blue-500 to-violet-600' }: {
-  name: string; size?: number; gradient?: string;
+// 头像组件：优先显示图片
+function Avatar({ name, size = 32, gradient = 'from-blue-500 to-violet-600', avatar }: {
+  name: string; size?: number; gradient?: string; avatar?: string;
 }) {
   return (
     <div
-      className={`rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-medium flex-shrink-0`}
+      className={`rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center text-white font-medium flex-shrink-0 overflow-hidden`}
       style={{ width: size, height: size, fontSize: size * 0.38 }}
     >
-      {name.slice(0, 1)}
+      {avatar
+        ? <img src={avatar} alt={name} className="w-full h-full object-cover" />
+        : name.slice(0, 1)
+      }
     </div>
   );
 }
@@ -89,6 +93,11 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const incomingAfterRef = useRef(Date.now());
 
+  // 移动端
+  const [showMobileMore, setShowMobileMore] = useState(false);
+  const [showMobileConvList, setShowMobileConvList] = useState(false);
+  const [userAvatar, setUserAvatar] = useState('');
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastTsRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -96,6 +105,15 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   const sendingRef = useRef(false);
 
   useEffect(() => { checkAuth().then(() => setAuthReady(true)); }, []);
+
+  // 加载自己的头像
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`/api/user/profile?userId=${user.id}`)
+      .then(r => r.json())
+      .then(d => { if (d.success && d.data.avatar) setUserAvatar(d.data.avatar); })
+      .catch(() => {});
+  }, [user?.id]);
 
   // 点击外部关闭 emoji 面板
   useEffect(() => {
@@ -332,8 +350,70 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
     <>
     <div className="flex h-screen bg-white" style={{ fontFamily: '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif' }}>
 
-      {/* ═══ 左侧：会话列表 ═══ */}
-      <div className="w-64 flex-shrink-0 border-r border-gray-100 flex flex-col bg-[#F7F8FA]">
+      {/* ═══ 移动端：会话列表抽屉 ═══ */}
+      {showMobileConvList && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowMobileConvList(false)} />
+          <div className="fixed top-0 left-0 bottom-0 z-50 w-72 bg-[#F7F8FA] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between px-4 h-14 border-b border-gray-100 bg-white">
+              <span className="font-semibold text-gray-800 text-[15px]">消息</span>
+              <button onClick={() => setShowMobileConvList(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
+            </div>
+            <div className="px-3 py-2.5">
+              <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-1.5 border border-gray-200">
+                <Search size={13} className="text-gray-400 flex-shrink-0" />
+                <input value={convSearch} onChange={e => setConvSearch(e.target.value)} placeholder="搜索好友"
+                  className="flex-1 text-[13px] text-gray-700 outline-none bg-transparent placeholder-gray-400" />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {filteredConvs.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm gap-2">
+                  <UserPlus size={28} className="text-gray-200" /><span>还没有私信</span>
+                </div>
+              )}
+              {filteredConvs.map(conv => (
+                <button key={conv.conversationId}
+                  onClick={() => { user && switchConv(user.id, conv.conversationId); setShowMobileConvList(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-200 transition-colors ${activeConvId === conv.conversationId ? 'bg-white border-r-2 border-blue-500' : ''}`}
+                >
+                  <Avatar name={conv.friend.nickname} size={36} gradient="from-blue-400 to-violet-500" avatar={conv.friend.avatar} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-medium text-gray-800 truncate">{conv.friend.nickname}</span>
+                      <span className="text-[11px] text-gray-400 flex-shrink-0 ml-1">{formatTime(conv.updatedAt)}</span>
+                    </div>
+                    <p className="text-[12px] text-gray-400 truncate mt-0.5">{conv.lastMessage || '暂无消息'}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ═══ 移动端：更多 Action Sheet ═══ */}
+      {showMobileMore && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowMobileMore(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3 mb-2" />
+            {[
+              { icon: <Phone size={18} className="text-blue-500" />, label: '语音通话', action: () => { if (activeConv) { setCallFriend(activeConv.friend); setPendingCall('audio'); setShowCallModal(true); } setShowMobileMore(false); } },
+              { icon: <Video size={18} className="text-violet-500" />, label: '视频通话', action: () => { if (activeConv) { setCallFriend(activeConv.friend); setPendingCall('video'); setShowCallModal(true); } setShowMobileMore(false); } },
+            ].map(item => (
+              <button key={item.label} onClick={item.action}
+                className="flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 transition-colors border-b border-gray-50">
+                {item.icon}<span className="text-[15px] text-gray-800">{item.label}</span>
+              </button>
+            ))}
+            <button onClick={() => setShowMobileMore(false)} className="flex items-center justify-center w-full py-4 text-gray-400 text-sm">取消</button>
+          </div>
+        </>
+      )}
+
+      {/* ═══ 左侧：会话列表（PC 专用） ═══ */}
+      <div className="hidden md:flex w-64 flex-shrink-0 border-r border-gray-100 flex-col bg-[#F7F8FA]">
         {/* 左侧顶栏 */}
         <div className="flex items-center justify-between px-4 h-14 border-b border-gray-100">
           <span className="font-semibold text-gray-800 text-[15px]">消息</span>
@@ -347,12 +427,8 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
         <div className="px-3 py-2.5">
           <div className="flex items-center gap-2 bg-white rounded-lg px-3 py-1.5 border border-gray-200">
             <Search size={13} className="text-gray-400 flex-shrink-0" />
-            <input
-              value={convSearch}
-              onChange={e => setConvSearch(e.target.value)}
-              placeholder="搜索好友"
-              className="flex-1 text-[13px] text-gray-700 outline-none bg-transparent placeholder-gray-400"
-            />
+            <input value={convSearch} onChange={e => setConvSearch(e.target.value)} placeholder="搜索好友"
+              className="flex-1 text-[13px] text-gray-700 outline-none bg-transparent placeholder-gray-400" />
           </div>
         </div>
 
@@ -360,19 +436,15 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
         <div className="flex-1 overflow-y-auto">
           {filteredConvs.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-sm gap-2">
-              <UserPlus size={28} className="text-gray-200" />
-              <span>还没有私信</span>
+              <UserPlus size={28} className="text-gray-200" /><span>还没有私信</span>
             </div>
           )}
           {filteredConvs.map(conv => (
-            <button
-              key={conv.conversationId}
+            <button key={conv.conversationId}
               onClick={() => user && switchConv(user.id, conv.conversationId)}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-200 transition-colors ${
-                activeConvId === conv.conversationId ? 'bg-white border-r-2 border-blue-500' : ''
-              }`}
+              className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-200 transition-colors ${activeConvId === conv.conversationId ? 'bg-white border-r-2 border-blue-500' : ''}`}
             >
-              <Avatar name={conv.friend.nickname} size={36} gradient="from-blue-400 to-violet-500" />
+              <Avatar name={conv.friend.nickname} size={36} gradient="from-blue-400 to-violet-500" avatar={conv.friend.avatar} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <span className="text-[13px] font-medium text-gray-800 truncate">{conv.friend.nickname}</span>
@@ -386,11 +458,25 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
       </div>
 
       {/* ═══ 右侧：聊天区 ═══ */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* 顶栏 */}
-        <header className="flex items-center justify-between px-5 h-14 border-b border-gray-100 bg-white flex-shrink-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* 移动端 Header */}
+        <header className="flex md:hidden items-center justify-between px-3 h-14 border-b border-gray-100 bg-white flex-shrink-0">
+          <button onClick={() => setShowMobileConvList(true)} className="p-2 -ml-1 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex items-center gap-2 min-w-0">
+            {activeConv && <Avatar name={displayName} size={28} gradient="from-blue-500 to-violet-500" avatar={activeConv.friend.avatar} />}
+            <h1 className="font-semibold text-gray-900 text-[15px] truncate max-w-[45vw]">{displayName}</h1>
+          </div>
+          <button onClick={() => setShowMobileMore(true)} className="p-2 -mr-1 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
+            <MoreHorizontal size={20} />
+          </button>
+        </header>
+
+        {/* PC 端顶栏 */}
+        <header className="hidden md:flex items-center justify-between px-5 h-14 border-b border-gray-100 bg-white flex-shrink-0">
           <div className="flex items-center gap-2.5">
-            {activeConv && <Avatar name={displayName} size={32} gradient="from-blue-500 to-violet-500" />}
+            {activeConv && <Avatar name={displayName} size={32} gradient="from-blue-500 to-violet-500" avatar={activeConv.friend.avatar} />}
             <div>
               <h1 className="font-medium text-gray-900 text-[15px] leading-tight">{displayName}</h1>
               <p className="text-[11px] leading-tight">
@@ -421,7 +507,7 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
         </header>
 
         {/* 消息区 */}
-        <div className="flex-1 overflow-y-auto bg-[#F7F8FA] px-6 py-4 space-y-1">
+        <div className="flex-1 overflow-y-auto bg-[#F7F8FA] px-3 md:px-6 py-4 space-y-1">
           {loading && (
             <div className="flex justify-center py-16">
               <Loader2 size={20} className="animate-spin text-gray-300" />
@@ -462,10 +548,11 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
                         name={msg.senderNickname}
                         size={32}
                         gradient={msg.isSelf ? 'from-pink-500 to-orange-400' : 'from-blue-500 to-violet-500'}
+                        avatar={msg.isSelf ? userAvatar : activeConv?.friend.avatar}
                       />
                     )}
                   </div>
-                  <div className={`flex flex-col ${msg.isSelf ? 'items-end' : 'items-start'} max-w-[65%]`}>
+                  <div className={`flex flex-col ${msg.isSelf ? 'items-end' : 'items-start'} max-w-[80%] md:max-w-[65%]`}>
                     {!isContinue && !msg.isSelf && (
                       <span className="text-[11px] text-gray-400 mb-1 ml-0.5">{msg.senderNickname}</span>
                     )}
@@ -564,7 +651,7 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
             )}
           </div>
 
-          <div className="flex items-end gap-2 px-4 pb-4 pt-1.5">
+          <div className="flex items-end gap-2 px-3 md:px-4 pb-4 pt-1.5">
             <textarea
               ref={textareaRef}
               value={input}
