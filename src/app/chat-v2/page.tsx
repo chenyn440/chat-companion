@@ -48,13 +48,6 @@ function ChatV2Inner() {
 
   const openForward = async (content: string) => {
     setForwardContent(content);
-    // 拉好友列表
-    if (!user?.id) return;
-    try {
-      const r = await fetch('/api/friends', { headers: { 'x-user-id': user.id } });
-      const d = await r.json();
-      if (d.success) setForwardFriends(d.data);
-    } catch { /* ignore */ }
   };
 
   const doForward = async (friendId: string, friendNickname: string) => {
@@ -532,6 +525,11 @@ function ChatV2Inner() {
             {[
               { icon: <Users size={18} className="text-violet-500" />, label: '好友', action: () => { setShowFriends(true); setShowMobileMore(false); } },
               { icon: <Share2 size={18} className="text-blue-500" />, label: '分享', action: () => { setShowShare(true); setShowMobileMore(false); }, disabled: !currentSessionId || messages.length === 0 },
+              { icon: <Share size={18} className="text-green-500" />, label: '转发会话', action: () => {
+                  const summary = messages.find(m => m.role === 'assistant')?.content?.slice(0, 60) || currentSession?.title || '对话内容';
+                  openForward(`[会话转发] ${currentSession?.title || '对话'}\n${summary}…`);
+                  setShowMobileMore(false);
+                }, disabled: !currentSessionId || messages.length === 0 },
               { icon: <Download size={18} className="text-gray-500" />, label: '导出', action: () => { currentSessionId && handleExport(currentSessionId, 'md'); setShowMobileMore(false); } },
               { icon: <Star size={18} className="text-amber-500" />, label: '收藏夹', action: () => { setShowFavorites(v => !v); setShowMobileMore(false); } },
             ].map(item => (
@@ -539,7 +537,7 @@ function ChatV2Inner() {
                 key={item.label}
                 onClick={item.action}
                 disabled={item.disabled}
-                className="flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
+                className="flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0 min-h-[56px]"
               >
                 {item.icon}
                 <span className="text-[15px] text-gray-800">{item.label}</span>
@@ -733,6 +731,16 @@ function ChatV2Inner() {
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Share2 size={15} />分享
+            </button>
+            <button
+              onClick={() => {
+                const summary = messages.find(m => m.role === 'assistant')?.content?.slice(0, 60) || currentSession?.title || '对话内容';
+                openForward(`[会话转发] ${currentSession?.title || '对话'}\n${summary}…`);
+              }}
+              disabled={!currentSessionId || messages.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Share size={15} />转发
             </button>
             <button
               onClick={() => currentSessionId && handleExport(currentSessionId, 'md')}
@@ -945,44 +953,13 @@ function ChatV2Inner() {
       )}
 
       {/* 转发好友选择弹窗 */}
-      {forwardContent !== null && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setForwardContent(null)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-sm flex flex-col overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="font-semibold text-gray-900">转发给好友</h2>
-              <button onClick={() => setForwardContent(null)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
-                <X size={18} />
-              </button>
-            </div>
-            {/* 消息预览 */}
-            <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-              <p className="text-xs text-gray-400 mb-1">转发内容</p>
-              <p className="text-sm text-gray-700 line-clamp-3">{forwardContent}</p>
-            </div>
-            {/* 好友列表 */}
-            <div className="flex-1 overflow-y-auto max-h-72 p-3">
-              {forwardFriends.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-8">暂无好友</p>
-              ) : (
-                forwardFriends.map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => doForward(f.id, f.nickname)}
-                    disabled={forwardLoading}
-                    className="flex items-center gap-3 w-full p-3 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-50"
-                  >
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                      {f.nickname.slice(0, 1)}
-                    </div>
-                    <span className="font-medium text-gray-800 text-sm">{f.nickname}</span>
-                    <span className="ml-auto text-xs text-blue-600">发送</span>
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
+      {forwardContent !== null && user && (
+        <FriendsDialog
+          userId={user.id}
+          forwardMode
+          onClose={() => { setForwardContent(null); }}
+          onSelectFriend={f => doForward(f.id, f.nickname)}
+        />
       )}
     </div>
   );
