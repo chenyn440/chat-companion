@@ -41,6 +41,7 @@ export async function GET(
         senderNickname: userMap[String(m.senderId)]?.nickname || '未知',
         senderAvatar: userMap[String(m.senderId)]?.avatar,
         content: m.content,
+        type: (m as any).type || 'text',
         createdAt: m.createdAt,
         isSelf: String(m.senderId) === userId,
       })),
@@ -67,17 +68,18 @@ export async function POST(
       return Response.json({ success: false, error: '会话不存在' }, { status: 404 });
     }
 
-    const { content } = await req.json();
+    const { content, type = 'text' } = await req.json();
     if (!content?.trim()) return Response.json({ success: false, error: '消息不能为空' }, { status: 400 });
 
     const msg = await DmMessage.create({
       conversationId: id,
       senderId: userId,
-      content: content.trim(),
+      content: type === 'image' ? content : content.trim(),
+      type,
     });
 
     // 更新会话最后消息和时间
-    conv.lastMessage = content.trim().slice(0, 50);
+    conv.lastMessage = type === 'image' ? '[图片]' : content.trim().slice(0, 50);
     conv.updatedAt = Date.now();
     await conv.save();
 
@@ -87,6 +89,7 @@ export async function POST(
         id: String(msg._id),
         senderId: userId,
         content: msg.content,
+        type,
         createdAt: msg.createdAt,
         isSelf: true,
       },

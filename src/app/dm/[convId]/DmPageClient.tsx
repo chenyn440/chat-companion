@@ -6,14 +6,25 @@ import { useAuthStore } from '@/lib/store/authStore';
 import {
   Send, ArrowLeft, Loader2, WifiOff, RefreshCw,
   Smile, Paperclip, Phone, Video, MoreHorizontal,
-  Search, UserPlus,
+  Search, UserPlus, X,
 } from 'lucide-react';
+
+// 常用 emoji
+const EMOJI_LIST = [
+  '😀','😂','🥰','😍','🤩','😎','🥳','😅','😭','😤',
+  '🤔','😏','🙄','😴','🤯','🥺','😬','🤗','🙃','😇',
+  '👍','👎','👏','🙌','🤝','💪','🤞','✌️','🫶','❤️',
+  '🔥','✨','💯','🎉','🎊','🎁','🎈','🌟','💥','💫',
+  '🐶','🐱','🐼','🐨','🦊','🐸','🦋','🌸','🍀','🌈',
+  '🍕','🍔','🍜','🍣','🍦','🎂','🍵','☕','🥤','🍺',
+];
 
 interface DmMessage {
   id: string;
   senderId: string;
   senderNickname: string;
   content: string;
+  type?: 'text' | 'image';
   createdAt: number;
   isSelf: boolean;
   status?: 'sending' | 'sent' | 'failed';
@@ -52,7 +63,6 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   const { user, checkAuth } = useAuthStore();
   const [authReady, setAuthReady] = useState(false);
 
-  // 会话列表
   const [convList, setConvList] = useState<ConvItem[]>([]);
   const [convSearch, setConvSearch] = useState('');
   const [activeConvId, setActiveConvId] = useState(initConvId);
@@ -62,6 +72,15 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [pollError, setPollError] = useState(false);
+
+  // emoji & 图片
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [pastedImage, setPastedImage] = useState<string | null>(null);
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
+  const [sendingImage, setSendingImage] = useState(false);
+  const emojiPanelRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastTsRef = useRef(0);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -69,6 +88,83 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   const sendingRef = useRef(false);
 
   useEffect(() => { checkAuth().then(() => setAuthReady(true)); }, []);
+
+  // 点击外部关闭 emoji 面板
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (emojiPanelRef.current && !emojiPanelRef.current.contains(e.target as Node)) {
+        setShowEmoji(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // 插入 emoji 到光标位置
+  const insertEmoji = (emoji: string) => {
+    const el = textareaRef.current;
+    if (!el) { setInput(prev => prev + emoji); return; }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const newVal = input.slice(0, start) + emoji + input.slice(end);
+    setInput(newVal);
+    setTimeout(() => {
+      el.selectionStart = el.selectionEnd = start + emoji.length;
+      el.focus();
+    }, 0);
+    setShowEmoji(false);
+  };
+
+  // 粘贴图片
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setPastedImage(ev.target?.result as string);
+        reader.readAsDataURL(file);
+        return;
+      }
+    }
+  };
+
+  // 选择图片文件
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert('图片不能超过 10MB'); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => setPastedImage(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // 发送图片
+  const handleSendImage = async (base64: string) => {
+    if (!user || sendingImage) return;
+    setPastedImage(null);
+    setSendingImage(true);
+    try {
+      const r = await fetch(`/api/dm/conversations/${activeConvId}/messages`, {
+        method: 'POST',
+        headers: { 'x-user-id': user.id, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: base64, type: 'image' }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setMessages(prev => [...prev, { ...d.data, isSelf: true, status: 'sent' as const, senderNickname: user.nickname }]);
+        lastTsRef.current = d.data.createdAt;
+        setConvList(prev => prev.map(c =>
+          c.conversationId === activeConvId ? { ...c, lastMessage: '[图片]', updatedAt: Date.now() } : c
+        ));
+      }
+    } catch { /* ignore */ }
+    finally { setSendingImage(false); }
+  };
 
   // 加载会话列表
   const loadConvList = useCallback(async (userId: string) => {
@@ -201,6 +297,7 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   if (authReady && !user) { router.replace('/login'); return null; }
 
   return (
+    <>
     <div className="flex h-screen bg-white" style={{ fontFamily: '-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif' }}>
 
       {/* ═══ 左侧：会话列表 ═══ */}
@@ -339,7 +436,16 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
                           : 'bg-[#3272F6] text-white rounded-br-sm'
                         : 'bg-white text-gray-800 rounded-bl-sm shadow-[0_1px_3px_rgba(0,0,0,0.07)] border border-gray-100/80'
                     }`}>
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                      {msg.type === 'image' ? (
+                        <img
+                          src={msg.content}
+                          alt="图片"
+                          className="max-w-full max-h-48 rounded-lg object-contain cursor-pointer"
+                          onClick={() => setLightboxImg(msg.content)}
+                        />
+                      ) : (
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+                      )}
                     </div>
                     <div className={`flex items-center gap-1.5 mt-0.5 px-0.5 ${msg.isSelf ? 'flex-row-reverse' : ''}`}>
                       {!showTimeDivider && (
@@ -364,16 +470,67 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
 
         {/* 输入区 */}
         <div className="bg-white border-t border-gray-100 flex-shrink-0">
-          <div className="flex items-center gap-0.5 px-4 pt-2.5 text-gray-400">
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"><Smile size={16} /></button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"><Paperclip size={16} /></button>
+          {/* 图片预览 */}
+          {pastedImage && (
+            <div className="px-4 pt-3 flex items-end gap-3 border-b border-gray-100 pb-3">
+              <img src={pastedImage} alt="预览" className="h-20 rounded-lg object-contain border border-gray-200" />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPastedImage(null)}
+                  className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg border border-gray-200"
+                >取消</button>
+                <button
+                  onClick={() => handleSendImage(pastedImage)}
+                  disabled={sendingImage}
+                  className="px-3 py-1.5 text-xs text-white bg-[#3272F6] hover:bg-blue-700 rounded-lg disabled:opacity-50 flex items-center gap-1"
+                >
+                  {sendingImage ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+                  发送图片
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 工具栏 */}
+          <div className="flex items-center gap-0.5 px-4 pt-2.5 text-gray-400 relative" ref={emojiPanelRef}>
+            <button
+              onClick={() => setShowEmoji(v => !v)}
+              className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${showEmoji ? 'bg-blue-50 text-blue-500' : 'hover:bg-gray-100'}`}
+            >
+              <Smile size={16} />
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+              title="发送图片"
+            >
+              <Paperclip size={16} />
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+
+            {/* Emoji 面板 */}
+            {showEmoji && (
+              <div className="absolute bottom-10 left-0 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-20 w-72">
+                <div className="grid grid-cols-10 gap-0.5">
+                  {EMOJI_LIST.map(emoji => (
+                    <button
+                      key={emoji}
+                      onClick={() => insertEmoji(emoji)}
+                      className="text-xl hover:bg-gray-100 rounded-lg p-0.5 transition-colors leading-none"
+                    >{emoji}</button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
           <div className="flex items-end gap-2 px-4 pb-4 pt-1.5">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              onPaste={handlePaste}
               placeholder={`发消息给 ${displayName}…`}
               rows={1}
               className="flex-1 resize-none outline-none text-[14px] text-gray-800 placeholder-gray-400 leading-relaxed overflow-hidden bg-transparent"
@@ -389,9 +546,30 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
               <Send size={15} />
             </button>
           </div>
-          <p className="text-center text-[11px] text-gray-300 pb-3 -mt-2">Enter 发送 · Shift+Enter 换行</p>
+          <p className="text-center text-[11px] text-gray-300 pb-3 -mt-2">Enter 发送 · Shift+Enter 换行 · 支持粘贴图片</p>
         </div>
       </div>
     </div>
+
+      {/* 图片灯箱 */}
+      {lightboxImg && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setLightboxImg(null)}
+        >
+          <img
+            src={lightboxImg}
+            alt="查看图片"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl"
+          />
+          <button
+            className="absolute top-4 right-4 text-white bg-black/40 hover:bg-black/60 rounded-full p-2"
+            onClick={() => setLightboxImg(null)}
+          >
+            <X size={20} />
+          </button>
+        </div>
+      )}
+    </>
   );
 }
