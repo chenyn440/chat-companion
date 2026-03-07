@@ -560,7 +560,7 @@ function ChatV2Inner() {
 
           {/* 用户下拉菜单 */}
           {showUserMenu && (
-            <div className="absolute bottom-14 left-2 right-2 bg-[#2C2C2E] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50">
+            <div className="absolute bottom-14 left-2 w-44 bg-[#2C2C2E] rounded-xl shadow-2xl border border-white/10 overflow-hidden z-50">
               <a
                 href="/profile"
                 onClick={() => setShowUserMenu(false)}
