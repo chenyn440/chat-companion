@@ -3,7 +3,7 @@
 import './styles.css';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useAuthStore } from '@/lib/store/authStore';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { chatStorage, StoredSession, StoredMessage, Variant } from '@/lib/storage/chatStorage';
 import SessionManager from '@/components/Chat/SessionManager';
 import MessageActions from '@/components/Chat/MessageActions';
@@ -19,6 +19,7 @@ import {
 
 function ChatV2Inner() {
   const { isLoggedIn, user, checkAuth, logout } = useAuthStore();
+  const router = useRouter();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const [sessions, setSessions] = useState<StoredSession[]>([]);
@@ -27,6 +28,7 @@ function ChatV2Inner() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [sessionIsFavorite, setSessionIsFavorite] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
   const [deepThinking, setDeepThinking] = useState(false);
@@ -72,6 +74,8 @@ function ChatV2Inner() {
       if (md.success) {
         showForwardToast(`已转发给 ${friendNickname}`);
         setForwardContent(null);
+        // 自动进入好友私聊页查看展示效果
+        router.push(`/dm/${cd.data.conversationId}`);
       } else {
         showForwardToast('转发失败，请重试');
       }
@@ -136,6 +140,17 @@ function ChatV2Inner() {
     if (currentSessionId) {
       setMessages(chatStorage.getSessionMessages(currentSessionId));
       setTimeout(scrollToBottom, 100);
+      // 同步收藏状态（仅登录用户）
+      if (user?.id) {
+        fetch(`/api/chat/sessions?userId=${user.id}`)
+          .then(r => r.json())
+          .then(d => {
+            if (d.success) {
+              const s = d.data.sessions?.find((s: any) => s.id === currentSessionId);
+              setSessionIsFavorite(s?.isFavorite ?? false);
+            }
+          }).catch(() => {});
+      }
     }
   }, [currentSessionId]);
 
@@ -200,11 +215,34 @@ function ChatV2Inner() {
 
   const handleExport = (sid: string, fmt: 'txt' | 'md') => {
     const content = fmt === 'txt' ? chatStorage.exportSessionAsText(sid) : chatStorage.exportSessionAsMarkdown(sid);
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `chat_${sid}.${fmt}`; a.click();
-    URL.revokeObjectURL(url);
+    // V1：复制到剪贴板
+    navigator.clipboard.writeText(content).then(() => {
+      showForwardToast('已复制到剪贴板');
+    }).catch(() => {
+      // 降级：下载文件
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `chat_${sid}.${fmt}`; a.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  /** 切换会话收藏状态 */
+  const handleToggleSessionFavorite = async () => {
+    if (!currentSessionId || !user?.id) return;
+    const newVal = !sessionIsFavorite;
+    setSessionIsFavorite(newVal);
+    try {
+      await fetch(`/api/chat/sessions/${currentSessionId}/favorite`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isFavorite: newVal }),
+      });
+      showForwardToast(newVal ? '已收藏' : '已取消收藏');
+    } catch {
+      setSessionIsFavorite(!newVal); // rollback
+    }
   };
 
   const handleToggleFavorite = (messageId: string) => {
@@ -530,6 +568,7 @@ function ChatV2Inner() {
                   openForward(`[会话转发] ${currentSession?.title || '对话'}\n${summary}…`);
                   setShowMobileMore(false);
                 }, disabled: !currentSessionId || messages.length === 0 },
+              { icon: <Star size={18} className={sessionIsFavorite ? 'text-amber-500 fill-amber-400' : 'text-amber-500'} />, label: sessionIsFavorite ? '取消收藏' : '收藏会话', action: () => { handleToggleSessionFavorite(); setShowMobileMore(false); }, disabled: !currentSessionId || !isLoggedIn },
               { icon: <Download size={18} className="text-gray-500" />, label: '导出', action: () => { currentSessionId && handleExport(currentSessionId, 'md'); setShowMobileMore(false); } },
               { icon: <Star size={18} className="text-amber-500" />, label: '收藏夹', action: () => { setShowFavorites(v => !v); setShowMobileMore(false); } },
             ].map(item => (
@@ -725,6 +764,16 @@ function ChatV2Inner() {
                 <Users size={15} />好友
               </button>
             )}
+            <button
+              onClick={handleToggleSessionFavorite}
+              disabled={!currentSessionId || !isLoggedIn}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                sessionIsFavorite ? 'text-amber-500 hover:bg-amber-50' : 'text-gray-500 hover:text-amber-500 hover:bg-amber-50'
+              }`}
+            >
+              <Star size={15} className={sessionIsFavorite ? 'fill-current' : ''} />
+              {sessionIsFavorite ? '已收藏' : '收藏'}
+            </button>
             <button
               onClick={() => setShowShare(true)}
               disabled={!currentSessionId || messages.length === 0}

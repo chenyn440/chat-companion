@@ -6,7 +6,6 @@ export async function GET(req: NextRequest) {
   try {
     await dbConnect();
     
-    // 从 cookie 验证登录状态
     const token = req.cookies.get('token')?.value;
     if (!token) {
       return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
@@ -14,20 +13,19 @@ export async function GET(req: NextRequest) {
     
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get('userId');
+    const favoriteOnly = searchParams.get('favorite') === 'true';
     
     if (!userId || userId === 'guest') {
-      return NextResponse.json({
-        success: true,
-        data: { sessions: [] },
-      });
+      return NextResponse.json({ success: true, data: { sessions: [] } });
     }
     
-    // 从数据库获取用户的所有会话
-    const sessions = await Session.find({ userId })
+    const query: any = { userId };
+    if (favoriteOnly) query.isFavorite = true;
+
+    const sessions = await Session.find(query)
       .sort({ updatedAt: -1 })
       .lean();
     
-    // 格式化数据
     const formattedSessions = sessions.map((session: any) => ({
       id: session._id.toString(),
       title: session.title || '新对话',
@@ -36,25 +34,18 @@ export async function GET(req: NextRequest) {
       updatedAt: session.updatedAt,
       lastMessage: session.messages?.[session.messages.length - 1]?.content || '',
       messageCount: session.messages?.length || 0,
+      isFavorite: session.isFavorite ?? false,
     }));
     
     return NextResponse.json({
       success: true,
       data: {
         sessions: formattedSessions,
-        pagination: {
-          page: 1,
-          limit: 20,
-          total: formattedSessions.length,
-          totalPages: 1,
-        },
+        pagination: { page: 1, limit: 20, total: formattedSessions.length, totalPages: 1 },
       },
     });
   } catch (error) {
     console.error('Get sessions error:', error);
-    return NextResponse.json(
-      { success: false, error: '获取对话列表失败' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: '获取对话列表失败' }, { status: 500 });
   }
 }
