@@ -771,8 +771,11 @@ function ChatV2Inner() {
 
                   {/* 用户头像 */}
                   {isUser && (
-                    <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-pink-500 to-orange-400 flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5">
-                      {user?.nickname?.slice(0, 1)?.toUpperCase() || 'U'}
+                    <div className="flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br from-pink-500 to-orange-400 flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5 overflow-hidden">
+                      {userAvatar
+                        ? <img src={userAvatar} alt="avatar" className="w-full h-full object-cover" />
+                        : (user?.nickname?.slice(0, 1)?.toUpperCase() || 'U')
+                      }
                     </div>
                   )}
                 </div>
