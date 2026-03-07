@@ -73,6 +73,7 @@ export default function SessionList() {
     if (authLoading) return;
     if (!isLoggedIn) { router.replace('/login'); return; }
     fetchSessions();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [search, filter, page, user, isLoggedIn, authLoading]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {

@@ -14,7 +14,7 @@ import {
   Send, StopCircle, Download, PenSquare, Share2, Users,
   ChevronLeft, ChevronRight, Star, MoreHorizontal, User,
   ChevronRight as ArrowRight, ChevronLeft as ArrowLeft,
-  X, Share,
+  X, Share, Menu,
 } from 'lucide-react';
 
 function ChatV2Inner() {
@@ -30,6 +30,10 @@ function ChatV2Inner() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showFriends, setShowFriends] = useState(false);
   const [deepThinking, setDeepThinking] = useState(false);
+  // 移动端 Drawer
+  const [showMobileDrawer, setShowMobileDrawer] = useState(false);
+  // 移动端更多菜单
+  const [showMobileMore, setShowMobileMore] = useState(false);
 
   // 转发相关
   const [forwardContent, setForwardContent] = useState<string | null>(null);
@@ -464,8 +468,86 @@ function ChatV2Inner() {
         <FriendsDialog userId={user.id} onClose={() => setShowFriends(false)} />
       )}
 
-      {/* ===== 左侧深色侧边栏 ===== */}
-      <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300`}>
+      {/* ===== 移动端 Drawer 抽屉 ===== */}
+      {showMobileDrawer && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/50" onClick={() => setShowMobileDrawer(false)} />
+          <div className="fixed top-0 left-0 bottom-0 z-50 w-72 bg-[#1C1C1E] flex flex-col shadow-2xl">
+            {/* Drawer 头部 */}
+            <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+              <a href="/" className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">AI</div>
+                <span className="text-white font-semibold text-sm">Chat 助手</span>
+              </a>
+              <button onClick={() => setShowMobileDrawer(false)} className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10">
+                <X size={18} />
+              </button>
+            </div>
+            {/* 新建对话 */}
+            <div className="px-3 pt-3 pb-2">
+              <button onClick={() => { doCreateSession(); setShowMobileDrawer(false); }}
+                className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors">
+                <PenSquare size={16} />新建对话
+              </button>
+            </div>
+            {/* 会话列表 */}
+            <div className="flex-1 overflow-hidden flex flex-col">
+              <SessionManager
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                onSessionSelect={(id) => { handleSessionSelect(id); setShowMobileDrawer(false); }}
+                onNewSession={() => { doCreateSession(); setShowMobileDrawer(false); }}
+                onDeleteSession={handleDeleteSession}
+                onRenameSession={handleRenameSession}
+                onTogglePin={handleTogglePin}
+                onExport={handleExport}
+              />
+            </div>
+            {/* 底部用户区 */}
+            <div className="border-t border-white/10 px-4 py-3 space-y-1">
+              <a href="/sessions" onClick={() => setShowMobileDrawer(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-300 hover:bg-white/10 text-sm">
+                <Star size={15} />对话历史
+              </a>
+              <a href="/profile" onClick={() => setShowMobileDrawer(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-gray-300 hover:bg-white/10 text-sm">
+                <User size={15} />个人中心
+              </a>
+              <button onClick={() => { setShowFriends(true); setShowMobileDrawer(false); }} className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-gray-300 hover:bg-white/10 text-sm">
+                <Users size={15} />好友
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ===== 移动端"更多"底部 Action Sheet ===== */}
+      {showMobileMore && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowMobileMore(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl pb-safe">
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mt-3 mb-4" />
+            {[
+              { icon: <Users size={18} className="text-violet-500" />, label: '好友', action: () => { setShowFriends(true); setShowMobileMore(false); } },
+              { icon: <Share2 size={18} className="text-blue-500" />, label: '分享', action: () => { setShowShare(true); setShowMobileMore(false); }, disabled: !currentSessionId || messages.length === 0 },
+              { icon: <Download size={18} className="text-gray-500" />, label: '导出', action: () => { currentSessionId && handleExport(currentSessionId, 'md'); setShowMobileMore(false); } },
+              { icon: <Star size={18} className="text-amber-500" />, label: '收藏夹', action: () => { setShowFavorites(v => !v); setShowMobileMore(false); } },
+            ].map(item => (
+              <button
+                key={item.label}
+                onClick={item.action}
+                disabled={item.disabled}
+                className="flex items-center gap-3 w-full px-5 py-4 hover:bg-gray-50 transition-colors disabled:opacity-40 border-b border-gray-50 last:border-0"
+              >
+                {item.icon}
+                <span className="text-[15px] text-gray-800">{item.label}</span>
+              </button>
+            ))}
+            <button onClick={() => setShowMobileMore(false)} className="flex items-center justify-center w-full py-4 text-gray-400 text-sm">取消</button>
+          </div>
+        </>
+      )}
+
+      {/* ===== 左侧深色侧边栏（仅 PC 显示） ===== */}
+      <div className={`hidden md:flex ${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex-col bg-[#1C1C1E] transition-all duration-300`}>
         {/* Logo + 折叠 */}
         <div className={`flex items-center border-b border-white/10 px-3 py-4 ${sidebarCollapsed ? 'flex-col gap-2' : 'justify-between px-4'}`}>
           {!sidebarCollapsed ? (
@@ -613,9 +695,22 @@ function ChatV2Inner() {
       </div>
 
       {/* ===== 主聊天区域 ===== */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white">
-        {/* 顶栏 */}
-        <div className="flex items-center justify-between px-6 py-3 border-b border-gray-100">
+      <div className="flex-1 flex flex-col min-w-0 bg-white overflow-hidden">
+        {/* 移动端 Header */}
+        <div className="flex md:hidden items-center justify-between px-4 h-14 border-b border-gray-100 flex-shrink-0">
+          <button onClick={() => setShowMobileDrawer(true)} className="p-2 -ml-2 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
+            <Menu size={22} />
+          </button>
+          <h1 className="text-[15px] font-semibold text-gray-900 truncate max-w-[55%] text-center">
+            {currentSession?.title || '新对话'}
+          </h1>
+          <button onClick={() => setShowMobileMore(true)} className="p-2 -mr-2 rounded-xl hover:bg-gray-100 text-gray-600 transition-colors">
+            <MoreHorizontal size={22} />
+          </button>
+        </div>
+
+        {/* PC 端顶栏 */}
+        <div className="hidden md:flex items-center justify-between px-6 py-3 border-b border-gray-100 flex-shrink-0">
           <h1 className="font-medium text-gray-900 text-base">
             {currentSession?.title || '新对话'}
           </h1>
@@ -646,7 +741,7 @@ function ChatV2Inner() {
 
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-6 py-8 space-y-8">
+          <div className="max-w-3xl mx-auto px-3 md:px-6 py-4 md:py-8 space-y-6 md:space-y-8">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center py-24 gap-4 select-none">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">AI</div>
@@ -786,7 +881,7 @@ function ChatV2Inner() {
         </div>
 
         {/* 输入区域 */}
-        <div className="border-t border-gray-100 bg-white px-6 py-4">
+        <div className="border-t border-gray-100 bg-white px-3 md:px-6 py-3 md:py-4 flex-shrink-0">
             <div className="max-w-3xl mx-auto">
               <div className="relative flex items-end gap-3 bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 focus-within:border-blue-400 focus-within:bg-white focus-within:shadow-md transition-all">
                 <textarea
