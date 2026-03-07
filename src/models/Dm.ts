@@ -18,8 +18,13 @@ const DmMessageSchema = new mongoose.Schema({
   createdAt:      { type: Number, default: () => Date.now() },
 });
 
-export const DmConversation = mongoose.models.DmConversation
-  || mongoose.model('DmConversation', DmConversationSchema);
+// 强制重建 model，避免 Next.js hot reload 时缓存旧 Schema（缺 type 字段会导致图片消息 type 丢失）
+if (mongoose.models.DmMessage) {
+  delete (mongoose.models as any).DmMessage;
+}
+if (mongoose.models.DmConversation) {
+  delete (mongoose.models as any).DmConversation;
+}
 
-export const DmMessage = mongoose.models.DmMessage
-  || mongoose.model('DmMessage', DmMessageSchema);
+export const DmConversation = mongoose.model('DmConversation', DmConversationSchema);
+export const DmMessage = mongoose.model('DmMessage', DmMessageSchema);

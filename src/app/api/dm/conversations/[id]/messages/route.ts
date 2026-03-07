@@ -69,7 +69,9 @@ export async function POST(
     }
 
     const { content, type = 'text' } = await req.json();
-    if (!content?.trim()) return Response.json({ success: false, error: '消息不能为空' }, { status: 400 });
+    // 图片消息内容为 base64，不能用 trim() 校验；文本消息才需要非空检查
+    const isEmpty = type === 'image' ? !content : !content?.trim();
+    if (isEmpty) return Response.json({ success: false, error: '消息不能为空' }, { status: 400 });
 
     const msg = await DmMessage.create({
       conversationId: id,
