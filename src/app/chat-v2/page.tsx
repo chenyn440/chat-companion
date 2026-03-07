@@ -456,21 +456,22 @@ function ChatV2Inner() {
       {/* ===== 左侧深色侧边栏 ===== */}
       <div className={`${sidebarCollapsed ? 'w-16' : 'w-64'} flex-shrink-0 flex flex-col bg-[#1C1C1E] transition-all duration-300`}>
         {/* Logo + 折叠 */}
-        <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
-          {!sidebarCollapsed && (
+        <div className={`flex items-center border-b border-white/10 px-3 py-4 ${sidebarCollapsed ? 'flex-col gap-2' : 'justify-between px-4'}`}>
+          {!sidebarCollapsed ? (
             <a href="/" className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" title="返回首页">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">AI</div>
+              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">AI</div>
               <span className="text-white font-semibold text-sm">Chat 助手</span>
             </a>
-          )}
-          {sidebarCollapsed && (
-            <a href="/" className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold cursor-pointer hover:opacity-80 transition-opacity mx-auto" title="返回首页">AI</a>
+          ) : (
+            <a href="/" title="返回首页" className="hover:opacity-80 transition-opacity">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">AI</div>
+            </a>
           )}
           <button
             onClick={() => setSidebarCollapsed(v => !v)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors ml-auto"
+            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0"
           >
-            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
 
