@@ -104,7 +104,18 @@ function ChatV2Inner() {
 
   const MAX_INPUT_LENGTH = 2000;
 
+  const [userAvatar, setUserAvatar] = useState('');
+
   useEffect(() => { checkAuth().then(() => setIsCheckingAuth(false)); }, []);
+
+  // 加载用户头像
+  useEffect(() => {
+    if (!user?.id) return;
+    fetch(`/api/user/profile?userId=${user.id}`)
+      .then(r => r.json())
+      .then(data => { if (data.success && data.data.avatar) setUserAvatar(data.data.avatar); })
+      .catch(() => {});
+  }, [user?.id]);
 
   // 多标签页同步：监听其他标签页的退出事件
   useEffect(() => {
@@ -547,8 +558,11 @@ function ChatV2Inner() {
             onClick={() => setShowUserMenu(v => !v)}
             className={`flex items-center gap-2 w-full rounded-xl px-2 py-1.5 hover:bg-white/10 transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-orange-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">
-              {user?.nickname?.slice(0, 1)?.toUpperCase() || 'U'}
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-orange-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
+              {userAvatar
+                ? <img src={userAvatar} alt="avatar" className="w-full h-full object-cover" />
+                : (user?.nickname?.slice(0, 1)?.toUpperCase() || 'U')
+              }
             </div>
             {!sidebarCollapsed && (
               <>
