@@ -85,6 +85,7 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   // 通话
   const [showCallModal, setShowCallModal] = useState(false);
   const [pendingCall, setPendingCall] = useState<'audio' | 'video' | null>(null);
+  const [callFriend, setCallFriend] = useState<{ id: string; nickname: string } | null>(null);
   const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const incomingAfterRef = useRef(Date.now());
 
@@ -242,8 +243,8 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
         if (d.success && d.data.length > 0) {
           incomingAfterRef.current = d.data[d.data.length - 1].createdAt;
           const offer = d.data.find((s: any) => s.type === 'offer');
-          if (offer) {
-            // 有来电，打开 CallModal（不设 pendingCall，让 CallModal 自己处理 offer）
+          if (offer && activeConv) {
+            setCallFriend(activeConv.friend);
             setShowCallModal(true);
           }
         }
@@ -406,12 +407,12 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
           </div>
           <div className="flex items-center gap-0.5 text-gray-400">
             <button
-              onClick={() => { setPendingCall('audio'); setShowCallModal(true); }}
+              onClick={() => { if (activeConv) { setCallFriend(activeConv.friend); setPendingCall('audio'); setShowCallModal(true); } }}
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
               title="语音通话"
             ><Phone size={16} /></button>
             <button
-              onClick={() => { setPendingCall('video'); setShowCallModal(true); }}
+              onClick={() => { if (activeConv) { setCallFriend(activeConv.friend); setPendingCall('video'); setShowCallModal(true); } }}
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
               title="视频通话"
             ><Video size={16} /></button>
@@ -611,14 +612,14 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
       )}
 
       {/* 通话弹窗 */}
-      {showCallModal && user && activeConv && (
+      {showCallModal && user && callFriend && (
         <CallModal
           userId={user.id}
           conversationId={activeConvId}
-          friend={activeConv.friend}
+          friend={callFriend}
           initiateCall={pendingCall}
           onCallInitiated={() => setPendingCall(null)}
-          onClose={() => { setShowCallModal(false); setPendingCall(null); }}
+          onClose={() => { setShowCallModal(false); setPendingCall(null); setCallFriend(null); }}
         />
       )}
     </>
