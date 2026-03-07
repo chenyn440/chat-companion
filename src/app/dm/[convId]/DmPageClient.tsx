@@ -8,6 +8,7 @@ import {
   Smile, Paperclip, Phone, Video, MoreHorizontal,
   Search, UserPlus, X,
 } from 'lucide-react';
+import CallModal from '@/components/Chat/CallModal';
 
 // 常用 emoji
 const EMOJI_LIST = [
@@ -80,6 +81,12 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
   const [sendingImage, setSendingImage] = useState(false);
   const emojiPanelRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 通话
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [pendingCall, setPendingCall] = useState<'audio' | 'video' | null>(null);
+  const incomingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const incomingAfterRef = useRef(Date.now());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastTsRef = useRef(0);
@@ -220,6 +227,30 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
     switchConv(user.id, initConvId);
     return () => { if (pollTimerRef.current) clearInterval(pollTimerRef.current); };
   }, [authReady, user]);
+
+  // 来电监听（当 CallModal 未显示时轮询）
+  useEffect(() => {
+    if (!authReady || !user || showCallModal) return;
+    incomingAfterRef.current = Date.now() - 2000;
+    incomingPollRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(
+          `/api/dm/call?conversationId=${activeConvId}&after=${incomingAfterRef.current}`,
+          { headers: { 'x-user-id': user.id } }
+        );
+        const d = await r.json();
+        if (d.success && d.data.length > 0) {
+          incomingAfterRef.current = d.data[d.data.length - 1].createdAt;
+          const offer = d.data.find((s: any) => s.type === 'offer');
+          if (offer) {
+            // 有来电，打开 CallModal（不设 pendingCall，让 CallModal 自己处理 offer）
+            setShowCallModal(true);
+          }
+        }
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => { if (incomingPollRef.current) clearInterval(incomingPollRef.current); };
+  }, [authReady, user, activeConvId, showCallModal]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -374,8 +405,16 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
             </div>
           </div>
           <div className="flex items-center gap-0.5 text-gray-400">
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"><Phone size={16} /></button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"><Video size={16} /></button>
+            <button
+              onClick={() => { setPendingCall('audio'); setShowCallModal(true); }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+              title="语音通话"
+            ><Phone size={16} /></button>
+            <button
+              onClick={() => { setPendingCall('video'); setShowCallModal(true); }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+              title="视频通话"
+            ><Video size={16} /></button>
             <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"><MoreHorizontal size={16} /></button>
           </div>
         </header>
@@ -569,6 +608,18 @@ export default function DmPageClient({ convId: initConvId }: { convId: string })
             <X size={20} />
           </button>
         </div>
+      )}
+
+      {/* 通话弹窗 */}
+      {showCallModal && user && activeConv && (
+        <CallModal
+          userId={user.id}
+          conversationId={activeConvId}
+          friend={activeConv.friend}
+          initiateCall={pendingCall}
+          onCallInitiated={() => setPendingCall(null)}
+          onClose={() => { setShowCallModal(false); setPendingCall(null); }}
+        />
       )}
     </>
   );
