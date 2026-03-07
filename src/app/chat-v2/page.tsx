@@ -428,21 +428,25 @@ function ChatV2Inner() {
       {/* ===== 收藏悬浮弹窗 ===== */}
       {showFavorites && (
         <>
-          {/* 遮罩 */}
           <div
             className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[1px]"
             onClick={() => setShowFavorites(false)}
           />
-          {/* 弹窗主体 */}
+          {/* 移动端：底部全屏抽屉；PC端：左侧锚点定位浮窗 */}
           <div
-            className="fixed z-50 bg-white rounded-2xl overflow-hidden flex flex-col"
-            style={{
+            className={[
+              'fixed z-50 bg-white overflow-hidden flex flex-col shadow-2xl',
+              // 移动端：底部弹出，圆角顶部
+              'bottom-0 left-0 right-0 h-[85vh] rounded-t-2xl',
+              // PC端：覆盖上面的移动端样式，改为锚点定位
+              'md:bottom-auto md:left-auto md:right-auto md:rounded-2xl',
+            ].join(' ')}
+            style={typeof window !== 'undefined' && window.innerWidth >= 768 ? {
               left: sidebarCollapsed ? 80 : 272,
               top: 64,
               width: 380,
               height: 'calc(100vh - 96px)',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.18), 0 6px 20px rgba(0,0,0,0.10)',
-            }}
+            } : undefined}
           >
             <FavoritesPanel
               onJumpToMessage={handleJumpToMessage}
