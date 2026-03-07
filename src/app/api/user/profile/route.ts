@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
         id: String(user._id),
         phone: user.phone,
         nickname: user.nickname,
-        avatar: user.avatar,
+        avatar: (user as any).avatar,
+        motto: (user as any).motto || '',
         preferences: user.preferences,
       },
     });
@@ -63,7 +64,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ success: false, error: '请先登录' }, { status: 401 });
     }
     
-    const { userId, nickname, avatar, preferences } = await req.json();
+    const { userId, nickname, avatar, motto, preferences } = await req.json();
     
     if (!userId) {
       return NextResponse.json(
@@ -75,6 +76,7 @@ export async function PUT(req: NextRequest) {
     const updateData: any = {};
     if (nickname !== undefined) updateData.nickname = nickname;
     if (avatar !== undefined) updateData.avatar = avatar;
+    if (motto !== undefined) updateData.motto = motto;
     if (preferences !== undefined) updateData.preferences = preferences;
     
     const user = await User.findByIdAndUpdate(
@@ -96,7 +98,8 @@ export async function PUT(req: NextRequest) {
         id: String(user._id),
         phone: user.phone,
         nickname: user.nickname,
-        avatar: user.avatar,
+        avatar: (user as any).avatar,
+        motto: (user as any).motto || '',
         preferences: user.preferences,
       },
     });
