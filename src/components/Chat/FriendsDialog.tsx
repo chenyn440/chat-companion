@@ -101,7 +101,7 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
         style={{ maxHeight: '80vh', boxShadow: '0 24px 64px rgba(0,0,0,0.2)' }}
       >
         {/* 头部 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-blue-600" />
             <h2 className="font-semibold text-gray-900">好友</h2>
@@ -112,7 +112,7 @@ export default function FriendsDialog({ userId, onClose }: FriendsDialogProps) {
         </div>
 
         {/* Tab */}
-        <div className="flex border-b px-4">
+        <div className="flex border-b border-gray-100 px-4">
           {([['list', '好友列表'], ['add', '添加好友'], ['requests', `申请${pendingCount > 0 ? ` (${pendingCount})` : ''}`]] as const).map(([key, label]) => (
             <button
               key={key}
